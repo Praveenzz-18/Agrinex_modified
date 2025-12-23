@@ -1,0 +1,59 @@
+:root {
+  /* Dark Mode Color Palette */
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #1a1a1a;
+  --bg-card: #1d1d1f;
+  --bg-card-hover: #252528;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #e5e5e7;
+  --text-tertiary: #a1a1a6;
+  --text-muted: #86868b;
+  
+  --border-color: #2d2d30;
+  --border-hover: #3d3d42;
+  
+  /* Agriculture Green Theme (optimized for dark mode) */
+  --green-primary: #10b981;
+  --green-dark: #059669;
+  --green-light: #34d399;
+  --green-bright: #6ee7b7;
+  --green-accent: #10b981;
+  --green-glow: rgba(16, 185, 129, 0.3);
+  --accent: #10b981;
+  
+  /* Legacy aliases for compatibility */
+  --black: #000000;
+  --off-black: #1d1d1f;
+  --dark-gray: #a1a1a6;
+  --mid-gray: #86868b;
+  --light-gray: #1d1d1f;
+  --white: #ffffff;
+
+  --space-xs: 10px;
+  --space-sm: 16px;
+  --space-md: 26px;
+  --space-lg: 42px;
+  --space-xl: 68px;
+  --space-2xl: 110px;
+  --space-3xl: 178px;
+  --phi: 1.618;
+
+  --max-width: 1618px;
+  --standard-width: 1000px;
+  --narrow-width: 618px;
+
+  --hero: 7rem;
+  --h1: 4.25rem;
+  --h2: 2.625rem;
+  --h3: 1.625rem;
+  --body-lg: 1.3125rem;
+  --body: 1rem;
+  --small: 0.625rem;
+
+  --transition-fast: 0.3s;
+  --transition-med: 0.618s;
+  --easing: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
