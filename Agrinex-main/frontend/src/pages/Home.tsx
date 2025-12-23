@@ -3,11 +3,13 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Hero from '../components/Hero';
 import FeatureCard from '../components/FeatureCard';
-import ImpactStats from '../components/ImpactStats';
-import TechPreview from '../components/TechPreview';
+
+
 import CTA from '../components/CTA';
+// @ts-ignore
 import agrinexLoop from '../assets/videos/agrinex_loop.mp4';
 import DynamicBackground from '../components/DynamicBackground';
+
 
 const features = [
   {
@@ -41,6 +43,23 @@ const features = [
     icon: '💰',
   },
 ];
+
+
+
+const CustomVideo = ({ src }: { src: string }) => (
+  <div style={{ width: 800, maxWidth: '80%', display: 'flex', alignItems: 'stretch' }}>
+    <video
+      src={src}
+      autoPlay
+      muted
+      loop
+      playsInline
+      preload="auto"
+      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8, boxShadow: '0 6px 18px rgba(0,0,0,0.08)' }}
+      aria-label="Agrinex looping product preview"
+    />
+  </div>
+);
 
 const Home: React.FC = () => {
   const { isAuthenticated } = useAuth();
@@ -91,15 +110,9 @@ const Home: React.FC = () => {
                 />
               </div>
             </div>
-            <div className="card-apple">
-              <div className="pill" style={{ marginBottom: 'var(--space-md)' }}>Live Snapshot</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-md)' }}>
-                <Metric title="Active Farms" value="10" delta="+2" />
-                <Metric title="Lives Impacted" value="247" delta="+18" />
-                <Metric title="Water Saved" value="28%" delta="+3%" />
-                <Metric title="Loan Approvals" value="12" delta="+2" />
-              </div>
-            </div>
+            
+
+            
           </div>
         </div>
       </section>
@@ -123,30 +136,11 @@ const Home: React.FC = () => {
         </div>
       </section>
 
-      <ImpactStats />
-      <TechPreview />
+{/* ImpactStats removed per user request */}
+{/* TechPreview removed as component file is missing */}
       <CTA />
     </>
   );
 };
 
-interface MetricProps {
-  title: string;
-  value: string;
-  delta?: string;
-}
-
-const Metric: React.FC<MetricProps> = ({ title, value, delta }) => (
-  <div>
-    <div style={{ fontSize: 'var(--h2)', fontWeight: 700, lineHeight: 1, color: 'var(--green-primary)' }}>{value}</div>
-    <div style={{ fontSize: 'var(--body-lg)', color: 'var(--text-secondary)' }}>{title}</div>
-    {delta && (
-      <div style={{ fontSize: 'var(--body)', fontWeight: 500, color: 'var(--green-light)' }}>
-        {delta.startsWith('-') ? '▼' : '▲'} {delta.replace('-', '')}
-      </div>
-    )}
-  </div>
-);
-
 export default Home;
-

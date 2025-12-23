@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import InteractiveField from './InteractiveField';
 
 const Hero: React.FC = () => {
   const navigate = useNavigate();
@@ -46,18 +47,7 @@ const Hero: React.FC = () => {
             </div>
           </div>
           <div className="hero-visual">
-            <div className="card-apple">
-              <div className="pill" style={{ marginBottom: 'var(--space-md)' }}>Live Analytics Dashboard</div>
-              <div style={{ display: 'grid', gap: 'var(--space-md)' }}>
-                <WeatherForecast />
-                <ZoneRecommendation />
-                <ChartVisual label="Irrigation Efficiency" value={87} color="#10b981" />
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-sm)', marginTop: 'var(--space-xs)' }}>
-                  <MiniMetric label="Water Saved" value="2,850L" />
-                  <MiniMetric label="Best Crop" value="Wheat" />
-                </div>
-              </div>
-            </div>
+                <InteractiveField />
           </div>
         </div>
       </div>
