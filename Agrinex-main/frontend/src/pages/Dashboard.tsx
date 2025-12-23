@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+// @ts-ignore
 import { db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
@@ -25,7 +26,7 @@ const Dashboard: React.FC = () => {
   return (
     <>
     <DynamicBackground />
-    <section className="section" style={{ paddingTop: 'var(--space-xl)', position: 'relative', overflow: 'hidden' }}>
+    <section className="section" style={{ paddingTop: 'var(--space-xl)', position: 'relative', overflow: 'hidden', zIndex: 10 }}>
       <div className="container">
         <div style={{ marginBottom: 'var(--space-xl)', position: 'relative' }}>
           <div className="card-apple" style={{ 

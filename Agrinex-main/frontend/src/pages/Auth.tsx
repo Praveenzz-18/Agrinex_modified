@@ -21,8 +21,8 @@ const Auth: React.FC = () => {
   return (
     <>
       <DynamicBackground />
-      <section className="section" style={{ paddingTop: 'var(--space-xl)' }}>
-        <div className="container auth-grid">
+      <section className="section" style={{ paddingTop: 'var(--space-xl)', position: 'relative', zIndex: 50 }}>
+        <div className="container auth-grid" style={{ position: 'relative', zIndex: 51 }}>
         <div className="auth-hero card-apple">
           <div className="pill" style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: 'var(--green-primary)', color: 'var(--green-light)' }}>
             🌾 Welcome to Agrinex
@@ -124,9 +124,13 @@ const Auth: React.FC = () => {
                 address: '',
                 farms,
               });
+
+              // Navigate immediately to prevent blocking
+              navigate(isNewUser ? '/profile' : '/dashboard');
               
+              // Fire-and-forget database updates
               try {
-                await setDoc(doc(db, 'users', email), {
+                setDoc(doc(db, 'users', email), {
                   id: 'user_123',
                   name,
                   email,
@@ -134,14 +138,11 @@ const Auth: React.FC = () => {
                   createdAt: new Date().toISOString(),
                 }, { merge: true });
                 const fid = farms[0]?.id || `farm_${Date.now()}`;
-                await setDoc(doc(db, 'farms', `${email}_${fid}`), {
+                setDoc(doc(db, 'farms', `${email}_${fid}`), {
                   owner: email,
                   ...farms[0],
                 }, { merge: true });
               } catch {}
-              
-              // Redirect new users to profile setup, existing users to dashboard
-              navigate(isNewUser ? '/profile' : '/dashboard');
             }}
           >
             {mode === 'signup' && (

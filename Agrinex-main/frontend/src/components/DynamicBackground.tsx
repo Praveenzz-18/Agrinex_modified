@@ -16,7 +16,7 @@ const DynamicBackground: React.FC = () => {
   }, []);
 
   return (
-    <div className="dynamic-bg" aria-hidden style={{ background: '#022c22' }}>
+    <div className="dynamic-bg" aria-hidden style={{ background: '#022c22', position: 'fixed', inset: 0, pointerEvents: 'none' }}>
       {/* Background Images with fade transition */}
       {images.map((img, index) => (
         <div 
