@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
+// @ts-ignore
 import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
+import DynamicBackground from '../components/DynamicBackground';
 
 const Auth: React.FC = () => {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
@@ -17,8 +19,10 @@ const Auth: React.FC = () => {
   }, []);
 
   return (
-    <section className="section" style={{ paddingTop: 'var(--space-xl)' }}>
-      <div className="container auth-grid">
+    <>
+      <DynamicBackground />
+      <section className="section" style={{ paddingTop: 'var(--space-xl)' }}>
+        <div className="container auth-grid">
         <div className="auth-hero card-apple">
           <div className="pill" style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: 'var(--green-primary)', color: 'var(--green-light)' }}>
             🌾 Welcome to Agrinex
@@ -202,6 +206,7 @@ const Auth: React.FC = () => {
         </div>
       </div>
     </section>
+    </>
   );
 };
 

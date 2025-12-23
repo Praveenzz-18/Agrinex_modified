@@ -3,6 +3,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
+// @ts-ignore
+import DynamicBackground from '../components/DynamicBackground';
+
 const Dashboard: React.FC = () => {
   const { user, getSelectedFarm } = useAuth();
   const [weatherSummary, setWeatherSummary] = useState<any | null>(null);
@@ -20,16 +23,16 @@ const Dashboard: React.FC = () => {
   }, [user?.id, getSelectedFarm]);
 
   return (
+    <>
+    <DynamicBackground />
     <section className="section" style={{ paddingTop: 'var(--space-xl)', position: 'relative', overflow: 'hidden' }}>
-      <div style={{
-        position: 'absolute',
-        inset: 0,
-        background: 'radial-gradient(1200px 600px at 10% 0%, rgba(16,185,129,0.10), transparent), radial-gradient(800px 400px at 90% 0%, rgba(34,197,94,0.08), transparent)',
-        pointerEvents: 'none',
-      }} />
       <div className="container">
         <div style={{ marginBottom: 'var(--space-xl)', position: 'relative' }}>
-          <div style={{ padding: 'var(--space-lg)', borderRadius: 'var(--space-xs)', background: 'linear-gradient(180deg, rgba(34,197,94,0.14), rgba(16,185,129,0.06))', border: '1px solid var(--border-color)', position: 'relative', overflow: 'hidden' }}>
+          <div className="card-apple" style={{ 
+            background: 'rgba(2, 44, 34, 0.6)', 
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(16, 185, 129, 0.2)'
+          }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }}>
               <div className="pill" style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: 'var(--green-primary)', color: 'var(--green-light)' }}>
                 🌿 Farmer Dashboard
@@ -42,27 +45,6 @@ const Dashboard: React.FC = () => {
             <p style={{ fontSize: 'var(--body-lg)', color: 'var(--text-secondary)', maxWidth: 'var(--narrow-width)' }}>
               Your agriculture intelligence dashboard. Monitor your farm, weather, soil health, and financial insights all in one place.
             </p>
-            <div style={{
-              position: 'absolute',
-              right: '-40px',
-              top: '-40px',
-              width: '220px',
-              height: '220px',
-              background: 'conic-gradient(from 180deg at 50% 50%, rgba(16,185,129,0.18), rgba(34,197,94,0.12), rgba(16,185,129,0.18))',
-              filter: 'blur(24px)',
-              borderRadius: '50%',
-              animation: 'pulseGradient 8s ease-in-out infinite',
-            }} />
-            <div style={{
-              position: 'absolute',
-              left: '-20px',
-              bottom: '-20px',
-              width: '140px',
-              height: '140px',
-              background: 'radial-gradient(closest-side, rgba(16,185,129,0.16), transparent)',
-              borderRadius: '50%',
-              animation: 'float 10s ease-in-out infinite',
-            }} />
           </div>
         </div>
         {!user?.name && (
@@ -170,6 +152,7 @@ const Dashboard: React.FC = () => {
         `}</style>
       </div>
     </section>
+    </>
   );
 };
 
