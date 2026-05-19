@@ -6,6 +6,7 @@ import pandas as pd
 
 
 from .weather_service import get_openmeteo_weather, map_location_to_coords
+from app.core.appwrite import appwrite_service
 
 # Load pre-trained irrigation model
 # This file is at: backend/app/services/irrigation_service.py
@@ -101,13 +102,19 @@ def recommend_irrigation_with_weather(
     application_rate_mm_per_h: float,
     state_name: str,
     district_name: str,
+    latitude: float = None,
+    longitude: float = None,
 ) -> Dict:
     """
     High-level function: fetch weather and recommend irrigation.
     """
     try:
         # Fetch weather
-        lat, lon = map_location_to_coords(state_name, district_name)
+        if latitude is not None and longitude is not None:
+            lat, lon = latitude, longitude
+        else:
+            lat, lon = map_location_to_coords(state_name, district_name)
+            
         weather = get_openmeteo_weather(lat, lon)
         rain_24h = weather["rain_24h"]
 
@@ -122,11 +129,14 @@ def recommend_irrigation_with_weather(
         result["state"] = state_name
         result["district"] = district_name
         if result["success"]:
-            appwrite_service.log_irrigation(
-            user_id="temp_user",  # from auth later
-            farm_id="temp_farm", 
-            log_data=result
-    )
+            try:
+                appwrite_service.log_irrigation(
+                    user_id="temp_user",  # from auth later
+                    farm_id="temp_farm", 
+                    log_data=result
+                )
+            except Exception:
+                pass
         return result
     except Exception as e:
         return {

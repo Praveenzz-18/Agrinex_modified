@@ -4,7 +4,7 @@ const stats = [
   { label: 'Water Savings', value: '-22%' },
   { label: 'Yield Uplift', value: '+12%' },
   { label: 'Downtime Reduced', value: '-31%' },
-  { label: 'Network Uptime', value: '99.97%' },
+  { label: 'AI Prediction Accuracy', value: '94%' },
 ];
 
 const ImpactStats: React.FC = () => {

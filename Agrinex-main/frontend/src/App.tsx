@@ -8,9 +8,7 @@ import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
 import Weather from './pages/Weather';
 import Profile from './pages/Profile';
-import Network from './pages/Network';
 import Soil from './pages/Soil';
-import Financial from './pages/Financial';
 
 const AppShell: React.FC = () => {
   const location = useLocation();
@@ -24,9 +22,7 @@ const AppShell: React.FC = () => {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/weather" element={<Weather />} />
           <Route path="/profile" element={<Profile />} />
-          <Route path="/network" element={<Network />} />
           <Route path="/soil" element={<Soil />} />
-          <Route path="/financial" element={<Financial />} />
           <Route path="/*" element={<Home />} />
         </Routes>
       </div>

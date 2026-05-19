@@ -17,10 +17,10 @@ const Footer: React.FC = () => {
             <a href="#features">Features</a>
           </div>
           <div>
-            <div className="title">Network</div>
-            <a href="/network">Farm Network</a>
+            <div className="title">Platform</div>
+            <a href="/soil">Soil Intelligence</a>
             <br />
-            <a href="#impact">Impact</a>
+            <a href="/weather">Weather Forecast</a>
           </div>
           <div>
             <div className="title">Support</div>

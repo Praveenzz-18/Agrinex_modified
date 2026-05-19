@@ -37,19 +37,32 @@ class CropService:
         soil_quality: str,
         state_name: str,
         district_name: str,
+        n_value: float = None,
+        p_value: float = None,
+        k_value: float = None,
+        ph_value: float = None,
+        latitude: float = None,
+        longitude: float = None,
     ) -> Dict:
         """
         Recommend crops based on soil + location + weather.
         """
         try:
-            # 1. Map soil inputs to numeric values
+            # 1. Map soil inputs to numeric values or use custom ones
             npk = CropService.SOIL_QUALITY_MAP.get(
                 soil_quality, CropService.SOIL_QUALITY_MAP["Medium"]
             )
-            ph_val = CropService.SOIL_TYPE_MAP.get(soil_type, 7.0)
+            n = n_value if n_value is not None else npk["N"]
+            p = p_value if p_value is not None else npk["P"]
+            k = k_value if k_value is not None else npk["K"]
+            ph_val = ph_value if ph_value is not None else CropService.SOIL_TYPE_MAP.get(soil_type, 7.0)
 
             # 2. Fetch weather from Open-Meteo
-            lat, lon = map_location_to_coords(state_name, district_name)
+            if latitude is not None and longitude is not None:
+                lat, lon = latitude, longitude
+            else:
+                lat, lon = map_location_to_coords(state_name, district_name)
+            
             weather = get_openmeteo_weather(lat, lon)
             temp = weather["temperature"]
             humidity = weather["humidity"]
@@ -58,9 +71,9 @@ class CropService:
             # 3. Build feature dict for model
             #    Must match training feature names exactly!
             sample = {
-                "N_req_kg_per_ha": npk["N"],
-                "P_req_kg_per_ha": npk["P"],
-                "K_req_kg_per_ha": npk["K"],
+                "N_req_kg_per_ha": n,
+                "P_req_kg_per_ha": p,
+                "K_req_kg_per_ha": k,
                 "Temperature_C": temp,
                 "Humidity_%": humidity,
                 "pH": ph_val,

@@ -14,9 +14,7 @@ const landingLinks = [
 const dashboardLinks = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/weather', label: 'Weather' },
-  { href: '/network', label: 'Network' },
   { href: '/soil', label: 'Soil' },
-  { href: '/financial', label: 'Financial' },
 ];
 
 const NavBar: React.FC = () => {

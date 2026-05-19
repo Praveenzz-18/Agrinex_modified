@@ -91,6 +91,18 @@ const Profile: React.FC = () => {
 
   const handlePersonalSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Check if we should auto-update the default farm location
+    // We do this if the user has only 1 farm and its location is generic/empty, OR if they explicitly want it to match
+    let updatedFarms = user?.farms || [];
+    if (updatedFarms.length > 0 && personalDetails.address) {
+       // Heuristic: If farm location is "Vidarbha, Maharashtra" or empty, overwrite it with new address
+       const currentLoc = updatedFarms[0].location;
+       if (!currentLoc || currentLoc.includes('Vidarbha') || currentLoc === 'Punjab, India') {
+           updateFarm(updatedFarms[0].id, { location: personalDetails.address });
+       }
+    }
+
     updateUser(personalDetails);
     alert('Personal details updated successfully!');
   };

@@ -32,16 +32,6 @@ const features = [
     body: 'Irrigate NOW vs WAIT decisions with confidence, factors, and ROI so farmers trust the recommendation. Weather + soil data combined.',
     icon: '💧',
   },
-  {
-    title: 'Multi-Farm Network Map',
-    body: 'See 10+ connected farms learning together. Share successful strategies, compare performance, and learn from neighbors\' irrigation patterns and crop choices.',
-    icon: '🌐',
-  },
-  {
-    title: 'Credit & ROI Proof',
-    body: 'Lender-facing risk scoring, ROI uplift, and PDF packs so farmers qualify faster and cheaper. Includes crop yield projections.',
-    icon: '💰',
-  },
 ];
 
 

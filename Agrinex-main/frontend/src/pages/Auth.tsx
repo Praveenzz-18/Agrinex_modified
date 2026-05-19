@@ -100,19 +100,24 @@ const Auth: React.FC = () => {
                 } catch {}
               }
 
+              // Check for existing user data in localStorage to persist profile updates
+              const storedUser = localStorage.getItem('agrinex_user');
+              const existingData = storedUser ? JSON.parse(storedUser) : null;
+              const hasExistingData = existingData && existingData.email === email;
+
               const farms = isNewUser ? [{
                 id: `farm_${Date.now()}`,
                 name: farm || 'My Farm',
                 location: city,
                 coordinates: coords || '0, 0',
                 area: 0,
-              }] : [{
+              }] : (hasExistingData && existingData.farms ? existingData.farms : [{
                 id: 'farm_123',
                 name: farm || 'My Farm',
-                location: 'Punjab, India',
-                coordinates: '30.7333, 76.7794',
+                location: 'Vidarbha, Maharashtra', // Changed default to generic
+                coordinates: '21.1458, 79.0882',
                 area: 5.2,
-              }];
+              }]);
 
               
 

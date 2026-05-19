@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+// @ts-ignore
 import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
@@ -39,10 +40,11 @@ const Weather: React.FC = () => {
   const selectedFarm = getSelectedFarm() || (user?.farms && user.farms.length > 0 ? user.farms[0] : null);
   const hasMultipleFarms = (user?.farms.length || 0) > 1;
   const userFarm = selectedFarm || {
-    id: 'farm_123',
-    name: 'My Farm',
-    location: 'Punjab, India',
-    coordinates: '30.7333°N, 76.7794°E',
+    id: 'temp',
+    name: 'Add Your Farm',
+    location: '',
+    coordinates: '',
+    area: 0,
   };
   const [currentWeather, setCurrentWeather] = useState<any>({
     location: userFarm.location,
@@ -90,105 +92,15 @@ const Weather: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const deriveFarmCoords = async () => {
-      try {
-        let lat: number | null = null;
-        let lon: number | null = null;
-        if (selectedFarm?.coordinates) {
-          const cleaned = selectedFarm.coordinates.replace(/[^\d\.,\- ]/g, '');
-          const parts = cleaned.split(',').map(s => s.trim());
-          if (parts.length >= 2) {
-            const plat = Number(parts[0]);
-            const plon = Number(parts[1]);
-            if (!Number.isNaN(plat) && !Number.isNaN(plon)) {
-              lat = plat;
-              lon = plon;
-            }
-          }
-        }
-        if (lat === null || lon === null) {
-          const geoRes = await api.get(`/api/geocode`, { params: { q: selectedFarm?.location || '' } });
-          const loc = (geoRes.data?.results && geoRes.data.results[0]) || null;
-          lat = loc?.lat ?? 30.7333;
-          lon = loc?.lon ?? 76.7794;
-        }
-        if (cancelled) return;
-        setGeoCoords({ lat: Number(lat.toFixed(4)), lon: Number(lon.toFixed(4)) });
-      } catch {
-        if (cancelled) return;
-        setGeoCoords({ lat: 30.7333, lon: 76.7794 });
-      }
-    };
-    deriveFarmCoords();
-    return () => { cancelled = true; };
-  }, [selectedFarm?.id]);
-
-  useEffect(() => {
-    if (!geoCoords) return;
-    let cancelled = false;
-    const fetchCurrent = async () => {
-      try {
-        const curRes = await api.get(`/api/weather/current`, { params: { lat: geoCoords.lat, lon: geoCoords.lon } });
-        const curJson = curRes.data;
-        if (cancelled) return;
-        setCurrentWeather({
-          location: curJson.location,
-          coordinates: `${geoCoords.lat}, ${geoCoords.lon}`,
-          temperature: curJson.temperature,
-          feelsLike: curJson.feelsLike,
-          condition: curJson.condition,
-          humidity: curJson.humidity,
-          windSpeed: curJson.windSpeed,
-          windDirection: curJson.windDirection,
-          pressure: curJson.pressure,
-          visibility: curJson.visibility,
-          uvIndex: curJson.uvIndex,
-          sunrise: curJson.sunrise,
-          sunset: curJson.sunset,
-          lastUpdated: curJson.lastUpdated,
-        });
-        try {
-          const geoRes = await api.get(`/api/geocode`, { params: { q: curJson.location } });
-          const loc = (geoRes.data?.results && geoRes.data.results[0]) || null;
-          const stateName = loc?.region || (selectedFarm?.location?.split(',')[0]?.trim() ?? 'Karnataka');
-          const districtName = loc?.name || (selectedFarm?.location?.split(',')[0]?.trim() ?? 'Bengaluru');
-          const soilType = selectedFarm?.soilType || 'Loam';
-          const soilQuality = (selectedFarm?.moisture ?? 45) < 35 ? 'Poor' : (selectedFarm?.moisture ?? 45) > 65 ? 'Rich' : 'Medium';
-          const soilFeel = (selectedFarm?.moisture ?? 45) < 35 ? 'dry and crumbly' : (selectedFarm?.moisture ?? 45) > 65 ? 'wet and muddy' : 'slightly damp';
-          const applicationRate = 5.0;
-          const cropRes = await api.post('/api/v1/crop/recommend', {
-            soil_type: soilType,
-            soil_quality: soilQuality,
-            state_name: stateName,
-            district_name: districtName,
-          });
-          const irrigRes = await api.post('/api/v1/irrigation/recommend', {
-            soil_feel: soilFeel,
-            application_rate: applicationRate,
-            state_name: stateName,
-            district_name: districtName,
-          });
-          setMlCropRecs(cropRes.data?.recommendations || []);
-          setMlIrrigation(irrigRes.data || null);
-        } catch {}
-      } catch {}
-    };
-    fetchCurrent();
-    const interval = setInterval(fetchCurrent, 60000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [geoCoords]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const fetchAll = async () => {
+    const fetchWeatherData = async () => {
       if (!selectedFarm) return;
       setLoading(true);
+      
       try {
         let lat: number | null = null;
         let lon: number | null = null;
+
+        // 1. Get coordinates from farm setup
         if (selectedFarm.coordinates) {
           const cleaned = selectedFarm.coordinates.replace(/[^\d\.,\- ]/g, '');
           const parts = cleaned.split(',').map(s => s.trim());
@@ -201,20 +113,37 @@ const Weather: React.FC = () => {
             }
           }
         }
+
+        // 2. Fallback to geocoding if coordinates are missing
         if (lat === null || lon === null) {
-          const geoRes = await api.get(`/api/geocode`, { params: { q: selectedFarm.location } });
-          const geoJson = geoRes.data;
-          const loc = (geoJson.results && geoJson.results[0]) || null;
-          lat = loc?.lat ?? 30.7333;
+          const geoRes = await api.get(`/api/v1/weather/geocode`, { params: { q: selectedFarm.location || '' } });
+          const loc = (geoRes.data?.results && geoRes.data.results[0]) || null;
+          lat = loc?.lat ?? 30.7333; // Default to Chandigarh area as ultimate fallback
           lon = loc?.lon ?? 76.7794;
         }
-        const curRes = await api.get(`/api/weather/current`, { params: { lat, lon } });
-        const curJson = curRes.data;
-        const fcRes = await api.get(`/api/weather/forecast`, { params: { lat, lon, days: forecastDays } });
-        const fcJson = fcRes.data;
-        const anRes = await api.get(`/api/weather/analytics`, { params: { lat, lon, days: forecastDays } });
-        const anJson = anRes.data;
+
         if (cancelled) return;
+        setGeoCoords({ 
+          lat: lat ?? 30.7333, 
+          lon: lon ?? 76.7794 
+        });
+
+        // 3. Fetch Current Weather, Forecast, Analytics, and Gemini Insights in parallel
+        const [curRes, fcRes, anRes, gemRes] = await Promise.all([
+          api.get(`/api/v1/weather/current`, { params: { lat, lon } }),
+          api.get(`/api/v1/weather/forecast`, { params: { lat, lon, days: forecastDays } }),
+          api.get(`/api/v1/weather/analytics`, { params: { lat, lon, days: forecastDays } }),
+          api.post(`/api/v1/weather/gemini-insights`, { lat, lon, days: forecastDays })
+        ]);
+
+        if (cancelled) return;
+
+        const curJson = curRes.data;
+        const fcJson = fcRes.data;
+        const anJson = anRes.data;
+        const gemJson = gemRes.data;
+
+        // Update Current Weather state
         setCurrentWeather({
           location: curJson.location,
           coordinates: `${lat}, ${lon}`,
@@ -227,66 +156,92 @@ const Weather: React.FC = () => {
           pressure: curJson.pressure,
           visibility: curJson.visibility,
           uvIndex: curJson.uvIndex,
+          aqi: curJson.aqi,
+          precipMm: curJson.precipMm,
+          rainChance: curJson.rainChance,
           sunrise: curJson.sunrise,
           sunset: curJson.sunset,
           lastUpdated: curJson.lastUpdated,
         });
-        const mappedForecast = (fcJson.days || []).map((d: any) => ({
-          date: new Date(d.date),
-          high: d.high,
-          low: d.low,
-          condition: d.condition,
-          rainChance: d.rainChance,
-          rainAmount: d.rainAmount,
-          humidity: d.humidity,
-          windSpeed: d.windSpeed,
-        }));
-        setForecastData(mappedForecast);
-        setAnalytics({
-          avgTemp: anJson.avgTemp ?? 0,
-          maxTemp: anJson.maxTemp ?? 0,
-          minTemp: anJson.minTemp ?? 0,
-          totalRainfall: anJson.totalRainfall ?? 0,
-          avgHumidity: anJson.avgHumidity ?? 0,
-          avgWindSpeed: anJson.avgWindSpeed ?? 0,
-          extremeDays: anJson.extremeDays ?? 0,
-        });
+
+        // Update Forecast state
+        if (fcJson.days && Array.isArray(fcJson.days)) {
+          const mappedForecast = fcJson.days.map((d: any) => ({
+            date: new Date(d.date),
+            high: d.high,
+            low: d.low,
+            condition: d.condition,
+            rainChance: d.rainChance,
+            rainAmount: d.rainAmount,
+            humidity: d.humidity,
+            windSpeed: d.windSpeed,
+          }));
+          setForecastData(mappedForecast);
+          
+          // Update analytics from backend response
+          setAnalytics({
+            avgTemp: anJson.avgTemp,
+            maxTemp: anJson.maxTemp,
+            minTemp: anJson.minTemp,
+            totalRainfall: anJson.totalRainfall,
+            avgHumidity: anJson.avgHumidity,
+            avgWindSpeed: anJson.avgWindSpeed,
+            extremeDays: anJson.extremeDays,
+          });
+
+          // Update gemini hints
+          setGemini(gemJson);
+        }
+
+        // 4. Fetch additional insights (ML Crop & Irrigation)
         try {
-          const gRes = await api.post(`/api/weather/gemini-insights`, { lat, lon, days: forecastDays });
-          setGemini(gRes.data);
-        } catch {
-          setGemini({ summary: { text: 'AI insights unavailable' } });
+          const locInfoRes = await api.get(`/api/v1/weather/geocode`, { params: { q: curJson.location } });
+          const locInfo = (locInfoRes.data?.results && locInfoRes.data.results[0]) || null;
+          
+          const stateName = locInfo?.region || 'Karnataka';
+          const districtName = locInfo?.name || 'Bengaluru';
+          const soilType = selectedFarm.soilType || 'Loam';
+          const soilQuality = (selectedFarm.moisture ?? 45) < 35 ? 'Poor' : (selectedFarm.moisture ?? 45) > 65 ? 'Rich' : 'Medium';
+          const soilFeel = (selectedFarm.moisture ?? 45) < 35 ? 'dry and crumbly' : (selectedFarm.moisture ?? 45) > 65 ? 'wet and muddy' : 'slightly damp';
+
+          const [cropRes, irrigRes] = await Promise.all([
+            api.post('/api/v1/crop/recommend', {
+              soil_type: soilType,
+              soil_quality: soilQuality,
+              state_name: stateName,
+              district_name: districtName,
+            }),
+            api.post('/api/v1/irrigation/recommend', {
+              soil_feel: soilFeel,
+              application_rate: 5.0,
+              state_name: stateName,
+              district_name: districtName,
+            })
+          ]);
+
+          if (!cancelled) {
+            setMlCropRecs(cropRes.data?.recommendations || []);
+            setMlIrrigation(irrigRes.data || null);
+          }
+        } catch (err) {
+          console.error("Error fetching ML insights:", err);
         }
-        const uid = user?.id || 'anonymous';
-        const fid = selectedFarm.id;
-        if (db) {
-          await setDoc(
-            doc(db, 'weather', `${uid}_${fid}`),
-            {
-              location: curJson.location,
-              lat,
-              lon,
-              current: curJson,
-              forecast: fcJson,
-              analytics: anJson,
-              gemini,
-              updatedAt: new Date().toISOString(),
-            },
-            { merge: true }
-          );
-        }
-      } catch (e) {
+
+      } catch (err) {
+        console.error("Error in weather data lifecycle:", err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
-    fetchAll();
-    const interval = setInterval(fetchAll, 300000);
+
+    fetchWeatherData();
+    const interval = setInterval(fetchWeatherData, 300000); // 5 minutes refresh
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [forecastDays, selectedFarm?.id]);
+  }, [selectedFarm?.id, selectedFarm?.coordinates, forecastDays]);
+
   useEffect(() => {
     let cancelled = false;
     const fetchZonesForWeather = async () => {
@@ -512,13 +467,22 @@ const Weather: React.FC = () => {
     if (!gemini) return null;
     return (
       <div className="card-apple" style={{ padding: 'var(--space-lg)', marginTop: 'var(--space-lg)' }}>
-        <div style={{ fontSize: 'var(--body)', color: 'var(--text-tertiary)', marginBottom: 'var(--space-xs)' }}>
-          AI Insights
+        <div style={{ fontSize: 'var(--body)', color: 'var(--text-tertiary)', marginBottom: 'var(--space-xs)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>✨</span> AI Insights & Recommendations
         </div>
-        <GeminiCard />
-        <div style={{ fontSize: 'var(--body-lg)', color: 'var(--text-primary)' }}>
+        <div style={{ fontSize: 'var(--body-lg)', color: 'var(--text-primary)', lineHeight: 1.6 }}>
           {gemini.summary?.text || 'No insights'}
         </div>
+        {gemini.recommendations && (
+          <div style={{ marginTop: 'var(--space-md)', display: 'grid', gap: 'var(--space-sm)' }}>
+            {gemini.recommendations.map((rec: any, i: number) => (
+              <div key={i} style={{ padding: 'var(--space-sm)', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)' }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '4px' }}>{rec.title}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{rec.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -769,9 +733,17 @@ const Weather: React.FC = () => {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-md)' }}>
               <WeatherMetric icon="💧" label="Humidity" value={`${currentWeather.humidity}%`} />
-              <WeatherMetric icon="💨" label="Wind" value={`${currentWeather.windSpeed} km/h ${currentWeather.windDirection}`} />
+              <WeatherMetric icon="💨" label="Wind" value={`${currentWeather.windSpeed} km/h ${currentWeather.windDirection || ''}`} />
               <WeatherMetric icon="📊" label="Pressure" value={`${currentWeather.pressure} hPa`} />
               <WeatherMetric icon="☀️" label="UV Index" value={currentWeather.uvIndex} />
+              <WeatherMetric icon="🌧️" label="Rain Chance" value={`${currentWeather.rainChance}%`} />
+              <WeatherMetric icon="📏" label="Precipitation" value={`${currentWeather.precipMm} mm`} />
+              <WeatherMetric 
+                icon="🏭" 
+                label="AQI (Level)" 
+                value={currentWeather.aqi ? `${getAQILabel(currentWeather.aqi)} (${currentWeather.aqi})` : 'N/A'} 
+                labelColor={currentWeather.aqi && currentWeather.aqi > 2 ? '#ef4444' : undefined}
+              />
               <WeatherMetric icon="🌅" label="Sunrise" value={currentWeather.sunrise} />
               <WeatherMetric icon="🌇" label="Sunset" value={currentWeather.sunset} />
             </div>
@@ -1003,6 +975,7 @@ const Weather: React.FC = () => {
           <div className="pill" style={{ marginBottom: 'var(--space-md)', background: 'rgba(16, 185, 129, 0.15)', borderColor: 'var(--green-primary)', color: 'var(--green-light)' }}>
             💡 AI Recommendations
           </div>
+          <GeminiCard />
 
           {/* Priority Action - Irrigation Recommendation */}
           <div style={{ 
@@ -1073,12 +1046,26 @@ interface WeatherMetricProps {
   icon: string;
   label: string;
   value: string | number;
+  labelColor?: string;
 }
 
-const WeatherMetric: React.FC<WeatherMetricProps> = ({ icon, label, value }) => (
+const getAQILabel = (index: number | null) => {
+  if (index === null) return 'N/A';
+  const labels = [
+    'Good',
+    'Moderate',
+    'Unhealthy(SG)',
+    'Unhealthy',
+    'Very Unhealthy',
+    'Hazardous'
+  ];
+  return labels[index - 1] || 'Unknown';
+};
+
+const WeatherMetric: React.FC<WeatherMetricProps> = ({ icon, label, value, labelColor }) => (
   <div>
     <div style={{ fontSize: 'var(--body)', color: 'var(--text-tertiary)', marginBottom: '4px' }}>{icon} {label}</div>
-    <div style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)' }}>{value}</div>
+    <div style={{ fontSize: 'var(--h3)', fontWeight: 600, color: labelColor || 'var(--text-primary)' }}>{value}</div>
   </div>
 );
 
