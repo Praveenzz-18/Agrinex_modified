@@ -13,7 +13,8 @@ def get_openmeteo_weather(lat: float, lon: float) -> Dict:
         params = {
             "latitude": lat,
             "longitude": lon,
-            "hourly": "temperature_2m,relative_humidity_2m,precipitation",
+            "current": "temperature_2m,relative_humidity_2m,precipitation",
+            "hourly": "precipitation",
             "forecast_days": 1,
             "timezone": "auto",
         }
@@ -21,15 +22,12 @@ def get_openmeteo_weather(lat: float, lon: float) -> Dict:
         r.raise_for_status()
         data = r.json()
 
-        hours = data["hourly"]["time"]
-        temps = data["hourly"]["temperature_2m"]
-        hums = data["hourly"]["relative_humidity_2m"]
-        prec = data["hourly"]["precipitation"]
-
-        # take last (most recent) hour as current
-        temperature = temps[-1]
-        humidity = hums[-1]
-        rain_24h = sum(prec)  # sum of all hourly precipitation
+        current = data.get("current", {})
+        temperature = current.get("temperature_2m", 25.0)
+        humidity = current.get("relative_humidity_2m", 60.0)
+        
+        hourly_precip = data.get("hourly", {}).get("precipitation", [])
+        rain_24h = sum(hourly_precip) if hourly_precip else 0.0
 
         return {
             "temperature": temperature,

@@ -1,0 +1,72 @@
+{
+    "model_type": "Random Forest",
+    "accuracy": 1.0,
+    "f1_score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "parameters": {
+        "n_estimators": 130,
+        "max_depth": "None",
+        "min_samples_split": 2
+    },
+    "class_metrics": {
+        "chickpea": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "support": 2769
+        },
+        "cotton": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "support": 1561
+        },
+        "maize": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "support": 2827
+        },
+        "rice": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "support": 2996
+        }
+    },
+    "confusion_matrix": {
+        "labels": [
+            "chickpea",
+            "cotton",
+            "maize",
+            "rice"
+        ],
+        "values": [
+            [
+                2769,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                1561,
+                0,
+                0
+            ],
+            [
+                0,
+                0,
+                2827,
+                0
+            ],
+            [
+                0,
+                0,
+                0,
+                2996
+            ]
+        ]
+    }
+}

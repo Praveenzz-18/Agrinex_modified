@@ -86,40 +86,86 @@ const Weather: React.FC = () => {
   const [gemini, setGemini] = useState<any | null>(null);
   const zoneLocks = getSelectedFarmZoneLocks();
   const [geoCoords, setGeoCoords] = useState<{ lat: number; lon: number } | null>(null);
-  const [mlCropRecs, setMlCropRecs] = useState<Array<{ crop: string; suitability: number; reason: string }>>([]);
-  const [mlIrrigation, setMlIrrigation] = useState<any | null>(null);
   const [zonesForFarm, setZonesForFarm] = useState<Array<{ id: string; area_acres: number; soil_type: string; moisture: number; crop_suggestion: string; suitability: number }>>([]);
+  
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [gpsLocationName, setGpsLocationName] = useState<string>('');
+  const [isUsingGps, setIsUsingGps] = useState<boolean>(false);
+
+  const handleDetectLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser");
+      return;
+    }
+    setLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        setGpsCoords({ lat, lon });
+        setIsUsingGps(true);
+        
+        try {
+          const geoRes = await api.get(`/api/v1/weather/geocode`, { params: { q: `${lat},${lon}` } });
+          const loc = (geoRes.data?.results && geoRes.data.results[0]) || null;
+          if (loc) {
+            setGpsLocationName(`${loc.name}${loc.region ? ', ' + loc.region : ''}`);
+          } else {
+            setGpsLocationName(`Current Location (${lat.toFixed(4)}, ${lon.toFixed(4)})`);
+          }
+        } catch (err) {
+          setGpsLocationName(`Current Location (${lat.toFixed(4)}, ${lon.toFixed(4)})`);
+        }
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error getting location:", error);
+        alert(`Failed to detect location: ${error.message}`);
+        setLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   useEffect(() => {
     let cancelled = false;
     const fetchWeatherData = async () => {
-      if (!selectedFarm) return;
+      if (!selectedFarm && !isUsingGps) return;
       setLoading(true);
       
       try {
         let lat: number | null = null;
         let lon: number | null = null;
+        let locationName = '';
 
-        // 1. Get coordinates from farm setup
-        if (selectedFarm.coordinates) {
-          const cleaned = selectedFarm.coordinates.replace(/[^\d\.,\- ]/g, '');
-          const parts = cleaned.split(',').map(s => s.trim());
-          if (parts.length >= 2) {
-            const plat = Number(parts[0]);
-            const plon = Number(parts[1]);
-            if (!Number.isNaN(plat) && !Number.isNaN(plon)) {
-              lat = plat;
-              lon = plon;
+        if (isUsingGps && gpsCoords) {
+          lat = gpsCoords.lat;
+          lon = gpsCoords.lon;
+          locationName = gpsLocationName || 'Current Location';
+        } else {
+          // 1. Get coordinates from farm setup
+          if (selectedFarm?.coordinates) {
+            const cleaned = selectedFarm.coordinates.replace(/[^\d\.,\- ]/g, '');
+            const parts = cleaned.split(',').map(s => s.trim());
+            if (parts.length >= 2) {
+              const plat = Number(parts[0]);
+              const plon = Number(parts[1]);
+              if (!Number.isNaN(plat) && !Number.isNaN(plon)) {
+                lat = plat;
+                lon = plon;
+              }
             }
           }
-        }
 
-        // 2. Fallback to geocoding if coordinates are missing
-        if (lat === null || lon === null) {
-          const geoRes = await api.get(`/api/v1/weather/geocode`, { params: { q: selectedFarm.location || '' } });
-          const loc = (geoRes.data?.results && geoRes.data.results[0]) || null;
-          lat = loc?.lat ?? 30.7333; // Default to Chandigarh area as ultimate fallback
-          lon = loc?.lon ?? 76.7794;
+          // 2. Fallback to geocoding if coordinates are missing
+          if (lat === null || lon === null) {
+            const geoRes = await api.get(`/api/v1/weather/geocode`, { params: { q: selectedFarm?.location || '' } });
+            const loc = (geoRes.data?.results && geoRes.data.results[0]) || null;
+            lat = loc?.lat ?? 30.7333; // Default to Chandigarh area as ultimate fallback
+            lon = loc?.lon ?? 76.7794;
+          }
+          
+          locationName = selectedFarm?.name || 'Farm Location';
         }
 
         if (cancelled) return;
@@ -145,8 +191,8 @@ const Weather: React.FC = () => {
 
         // Update Current Weather state
         setCurrentWeather({
-          location: curJson.location,
-          coordinates: `${lat}, ${lon}`,
+          location: locationName,
+          coordinates: `${lat?.toFixed(4)}, ${lon?.toFixed(4)}`,
           temperature: curJson.temperature,
           feelsLike: curJson.feelsLike,
           condition: curJson.condition,
@@ -193,40 +239,6 @@ const Weather: React.FC = () => {
           setGemini(gemJson);
         }
 
-        // 4. Fetch additional insights (ML Crop & Irrigation)
-        try {
-          const locInfoRes = await api.get(`/api/v1/weather/geocode`, { params: { q: curJson.location } });
-          const locInfo = (locInfoRes.data?.results && locInfoRes.data.results[0]) || null;
-          
-          const stateName = locInfo?.region || 'Karnataka';
-          const districtName = locInfo?.name || 'Bengaluru';
-          const soilType = selectedFarm.soilType || 'Loam';
-          const soilQuality = (selectedFarm.moisture ?? 45) < 35 ? 'Poor' : (selectedFarm.moisture ?? 45) > 65 ? 'Rich' : 'Medium';
-          const soilFeel = (selectedFarm.moisture ?? 45) < 35 ? 'dry and crumbly' : (selectedFarm.moisture ?? 45) > 65 ? 'wet and muddy' : 'slightly damp';
-
-          const [cropRes, irrigRes] = await Promise.all([
-            api.post('/api/v1/crop/recommend', {
-              soil_type: soilType,
-              soil_quality: soilQuality,
-              state_name: stateName,
-              district_name: districtName,
-            }),
-            api.post('/api/v1/irrigation/recommend', {
-              soil_feel: soilFeel,
-              application_rate: 5.0,
-              state_name: stateName,
-              district_name: districtName,
-            })
-          ]);
-
-          if (!cancelled) {
-            setMlCropRecs(cropRes.data?.recommendations || []);
-            setMlIrrigation(irrigRes.data || null);
-          }
-        } catch (err) {
-          console.error("Error fetching ML insights:", err);
-        }
-
       } catch (err) {
         console.error("Error in weather data lifecycle:", err);
       } finally {
@@ -234,13 +246,15 @@ const Weather: React.FC = () => {
       }
     };
 
+    if (isUsingGps && !gpsCoords) return;
+
     fetchWeatherData();
     const interval = setInterval(fetchWeatherData, 300000); // 5 minutes refresh
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [selectedFarm?.id, selectedFarm?.coordinates, forecastDays]);
+  }, [selectedFarm?.id, selectedFarm?.coordinates, forecastDays, gpsCoords, isUsingGps]);
 
   useEffect(() => {
     let cancelled = false;
@@ -297,169 +311,6 @@ const Weather: React.FC = () => {
 
   
 
-  // TODO: Replace with API call - Micro Weather Forecasting (Multi-Radius Zones)
-  // 
-  // BACKEND INTEGRATION GUIDE:
-  // 
-  // 1. Fetch Micro Weather Data:
-  //    GET /api/weather/micro-forecast?farmId={userFarm.id}&radius=2,10,20
-  //    OR: GET /api/weather/micro-forecast?lat={lat}&lon={lon}&radius=2,10,20
-  //    
-  //    Backend should:
-  //    - Extract farm coordinates from userFarm.coordinates
-  //    - Call OpenWeather API (or similar) for each radius zone
-  //    - Use OpenWeather's "One Call API 3.0" with lat/lon to get hyperlocal data
-  //    - For each radius (2km, 10km, 20km), fetch weather data for that area
-  //    - Return current weather + forecast for each zone
-  //
-  // 2. Gemini API Integration for Predictions:
-  //    POST /api/weather/gemini-micro-predictions
-  //    Payload: {
-  //      farmId: string,
-  //      zones: [
-  //        {
-  //          radius: 2,
-  //          currentWeather: {...},
-  //          forecast: [...],
-  //          soilData: {...}, // From soil sensors
-  //          cropData: {...}, // Current crop info
-  //        },
-  //        // ... 10km, 20km zones
-  //      ]
-  //    }
-  //
-  //    Gemini Prompt Example:
-  //    "Analyze micro weather data for agriculture across 3 radius zones (2km, 10km, 20km) 
-  //     around farm coordinates. For each zone, predict:
-  //     1. Rainfall probability (next 24h, 48h, 7 days) with confidence level
-  //     2. Soil quality degradation risk (LOW/MODERATE/HIGH) with probability and factors
-  //     3. Other critical insights for farmers (temperature patterns, wind effects, etc.)
-  //     
-  //     Consider: current weather, forecast trends, soil conditions, crop type, 
-  //     and microclimate patterns. Provide actionable recommendations."
-  //
-  //    Response Structure:
-  //    {
-  //      zones: [
-  //        {
-  //          radius: 2,
-  //          rainfallChance: { next24h: 15, next48h: 35, next7days: 60, confidence: 82, analysis: "..." },
-  //          soilDegradationRisk: { risk: "LOW", probability: 12, factors: [...], timeframe: "...", recommendation: "..." },
-  //          otherInsights: [...]
-  //        },
-  //        // ... other zones
-  //      ]
-  //    }
-  //
-  // 3. Real-Time Updates:
-  //    - Poll every 5-10 minutes: useEffect(() => { fetchMicroWeather(); const interval = setInterval(fetchMicroWeather, 300000); return () => clearInterval(interval); }, [selectedFarm?.id]);
-  //    - Re-run Gemini predictions when weather data changes significantly
-  //    - Cache predictions for 15-30 minutes to reduce API calls
-  //
-  // 4. OpenWeather API Integration:
-  //    - Use "One Call API 3.0" for hyperlocal forecasts
-  //    - For multi-radius: Calculate lat/lon points at 2km, 10km, 20km distances
-  //    - Use geospatial queries or multiple API calls for each radius
-  //    - Alternative: Use OpenWeather's "Grid" API if available for your region
-  //
-  const microWeatherZones = React.useMemo(() => {
-    if (!currentWeather) return [];
-    const baseCurrent = {
-      temperature: currentWeather.temperature,
-      humidity: currentWeather.humidity,
-      windSpeed: currentWeather.windSpeed,
-      condition: currentWeather.condition,
-      pressure: currentWeather.pressure,
-    };
-    const fc = forecastData.slice(0, 7);
-    return [
-      {
-        radius: 2,
-        label: 'Immediate Zone (2km)',
-        description: 'Weather conditions directly affecting your farm',
-        current: baseCurrent,
-        forecast: fc,
-        geminiPredictions: {
-          rainfallChance: {
-            next24h: 15,
-            next48h: 35,
-            next7days: 60,
-            confidence: 82,
-            analysis: 'Low rainfall probability in immediate zone. Dry conditions expected.',
-          },
-          soilDegradationRisk: {
-            risk: 'LOW',
-            probability: 12,
-            factors: ['Low humidity may cause soil moisture loss', 'No significant weather events expected'],
-            timeframe: 'Next 7 days',
-            recommendation: 'Monitor soil moisture levels. Consider light irrigation if soil becomes too dry.',
-          },
-          otherInsights: [
-            'Temperature stable - optimal for crop growth',
-            'Wind speed moderate - no damage risk',
-            'Pressure stable - no storm systems approaching',
-          ],
-        },
-      },
-      {
-        radius: 10,
-        label: 'Regional Zone (10km)',
-        description: 'Weather patterns in your surrounding region',
-        current: baseCurrent,
-        forecast: fc,
-        geminiPredictions: {
-          rainfallChance: {
-            next24h: 25,
-            next48h: 45,
-            next7days: 70,
-            confidence: 78,
-            analysis: 'Moderate rainfall probability in regional zone. Some areas may receive light showers.',
-          },
-          soilDegradationRisk: {
-            risk: 'MODERATE',
-            probability: 28,
-            factors: ['Variable humidity patterns', 'Possible light rainfall may affect soil moisture'],
-            timeframe: 'Next 5-7 days',
-            recommendation: 'Prepare for variable weather. Adjust irrigation schedule based on regional patterns.',
-          },
-          otherInsights: [
-            'Regional temperature slightly cooler - may affect microclimate',
-            'Higher wind speeds detected - monitor for potential crop damage',
-            'Cloud cover increasing - may reduce solar radiation',
-          ],
-        },
-      },
-      {
-        radius: 20,
-        label: 'Extended Zone (20km)',
-        description: 'Broader weather systems affecting your area',
-        current: baseCurrent,
-        forecast: fc,
-        geminiPredictions: {
-          rainfallChance: {
-            next24h: 35,
-            next48h: 55,
-            next7days: 80,
-            confidence: 75,
-            analysis: 'Higher rainfall probability in extended zone. Weather system approaching from west.',
-          },
-          soilDegradationRisk: {
-            risk: 'MODERATE',
-            probability: 35,
-            factors: ['Approaching weather system may bring heavy rain', 'Increased humidity may affect soil aeration'],
-            timeframe: 'Next 3-5 days',
-            recommendation: 'Prepare for potential heavy rainfall. Ensure proper drainage. Monitor soil conditions closely.',
-          },
-          otherInsights: [
-            'Weather system approaching from extended zone',
-            'Pressure dropping - indicates incoming weather change',
-            'Temperature gradient detected - may bring cooler conditions',
-            'Increased cloud cover in extended zone may reach your farm',
-          ],
-        },
-      },
-    ];
-  }, [currentWeather, forecastData]);
 
   
 
@@ -511,130 +362,20 @@ const Weather: React.FC = () => {
   // TODO: Replace with real-time ML model insights + Gemini API
   // These will update automatically as weather data changes
   // Backend will combine ML model predictions with Gemini AI analysis
-  const mlInsights = {
-    lastUpdated: new Date().toLocaleTimeString(),
-    irrigationRecommendation: {
-      action: 'IRRIGATE_NOW',
-      confidence: 87,
-      reason: 'Soil moisture below threshold (32%) and no rain expected for 5 days',
-      optimalTime: 'Tomorrow 6:00 AM - 7:00 AM',
-      duration: '45 minutes',
-      waterVolume: '2,850 liters',
-      expectedBenefit: 'Prevent 12% yield loss (₹3,600 saved)',
-      riskIfDelayed: 'Crop stress may reduce yield by 15-20%',
-    },
-    irrigationTiming: {
-      // ML Model + Gemini AI generated irrigation schedule
-      schedule: [
-        {
-          day: 1,
-          date: forecastData[0].date.toLocaleDateString(),
-          optimalTime: '6:00 AM - 7:00 AM',
-          duration: '45 minutes',
-          waterVolume: '2,850 liters',
-          reason: 'Soil moisture below threshold (32%) and no rain expected',
-          priority: 'HIGH',
-          confidence: 87,
-        },
-        {
-          day: 4,
-          date: forecastData[3].date.toLocaleDateString(),
-          optimalTime: '5:30 AM - 6:30 AM',
-          duration: '40 minutes',
-          waterVolume: '2,500 liters',
-          reason: 'Maintain optimal moisture before dry period',
-          priority: 'MEDIUM',
-          confidence: 72,
-        },
-        {
-          day: 7,
-          date: forecastData[6].date.toLocaleDateString(),
-          optimalTime: '6:00 AM - 7:00 AM',
-          duration: '50 minutes',
-          waterVolume: '3,200 liters',
-          reason: 'Prevent stress during high temperature period',
-          priority: 'HIGH',
-          confidence: 81,
-        },
-      ],
-      totalWaterNeeded: '8,550 liters',
-      estimatedCost: '₹142',
-      waterEfficiency: '28% better than traditional scheduling',
-      expectedYieldBenefit: '+12% yield improvement',
-    },
-    // TODO: Generated by Gemini API - simple, actionable best practices for farmers
-    bestPractices: [
-      {
-        practice: 'Irrigate Early Morning',
-        tip: 'Water between 5:30 AM - 7:00 AM to save water',
-        benefit: 'Save ₹8,200 this season',
-      },
-      {
-        practice: 'Use Mulch',
-        tip: 'Apply 2-3 inches of organic mulch to keep soil moist',
-        benefit: 'Reduce watering by 30%',
-      },
-      {
-        practice: 'Monitor Soil Moisture',
-        tip: 'Check soil before watering to avoid over-irrigation',
-        benefit: 'Better crop health',
-      },
-    ],
-  };
+  // mlInsights block removed
 
   return (
     <section className="section" style={{ paddingTop: 'var(--space-xl)' }}>
       <div className="container">
         {/* Header */}
         <div style={{ marginBottom: 'var(--space-xl)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }}>
-            <div className="pill" style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: 'var(--green-primary)', color: 'var(--green-light)' }}>
-              🌤️ Micro Weather Forecasting
-            </div>
-          </div>
           <h1 style={{ fontSize: 'var(--h1)', marginBottom: 'var(--space-md)', color: 'var(--text-primary)' }}>
-            Hyper-Local Weather Intelligence
+            Weather Forecast
           </h1>
-          <div className="card-apple" style={{ marginTop: 'var(--space-md)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 'var(--space-md)', alignItems: 'start' }}>
-              <div>
-                <div className="pill" style={{ marginBottom: 'var(--space-sm)' }}>Irrigation Decision</div>
-                {mlIrrigation ? (
-                  <div style={{ padding: 'var(--space-sm)', border: '1px solid var(--border-color)', borderRadius: 'var(--space-xs)', background: 'var(--bg-tertiary)' }}>
-                    <div style={{ fontSize: 'var(--body)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
-                      {mlIrrigation.irrigate ? 'Irrigate Now' : 'Wait'}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                      {mlIrrigation.reason_weather}
-                    </div>
-                    <div style={{ display: 'flex', gap: 'var(--space-md)', marginTop: '8px' }}>
-                      <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Water</div>
-                      <div style={{ fontSize: 'var(--body)', color: 'var(--text-primary)', fontWeight: 600 }}>{mlIrrigation.water_mm} mm</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Duration</div>
-                      <div style={{ fontSize: 'var(--body)', color: 'var(--text-primary)', fontWeight: 600 }}>{mlIrrigation.duration_hours} h</div>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Loading ML decision…</div>
-                )}
-              </div>
-            </div>
-          </div>
+          <div style={{ marginTop: 'var(--space-md)' }}></div>
           <p style={{ fontSize: 'var(--body-lg)', color: 'var(--text-secondary)', maxWidth: 'var(--narrow-width)', marginBottom: 'var(--space-sm)' }}>
-            Get farm-specific weather predictions for your exact location. Not generic regional forecasts — precise micro-weather data designed for agriculture decision-making.
+            Get farm-specific weather predictions for your exact location.
           </p>
-          <div style={{ 
-            padding: 'var(--space-sm) var(--space-md)', 
-            background: 'rgba(16, 185, 129, 0.1)', 
-            borderRadius: 'var(--space-xs)',
-            border: '1px solid var(--green-primary)',
-            display: 'inline-block',
-            marginTop: 'var(--space-sm)',
-          }}>
-            <div style={{ fontSize: 'var(--body)', color: 'var(--text-primary)', fontWeight: 500 }}>
-              ✨ <strong>Innovative Feature:</strong> Multi-radius micro weather forecasting (2km, 10km, 20km) with AI-powered predictions
-            </div>
-          </div>
         </div>
 
         {/* User Farm Info & Forecast Period Selector */}
@@ -648,7 +389,10 @@ const Weather: React.FC = () => {
                 </label>
                 <select
                   value={selectedFarm?.id || ''}
-                  onChange={(e) => selectFarm(e.target.value)}
+                  onChange={(e) => {
+                    setIsUsingGps(false);
+                    selectFarm(e.target.value);
+                  }}
                   style={{
                     padding: 'var(--space-sm) var(--space-md)',
                     borderRadius: 'var(--space-xs)',
@@ -672,35 +416,88 @@ const Weather: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-md)' }}>
               <div>
                 <div style={{ fontSize: 'var(--body)', color: 'var(--text-tertiary)', marginBottom: 'var(--space-xs)' }}>
-                  {hasMultipleFarms ? 'Selected Farm' : 'Your Farm Location'}
+                  {isUsingGps ? 'Current GPS Location' : (hasMultipleFarms ? 'Selected Farm' : 'Your Farm Location')}
                 </div>
-                <div style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  {userFarm.name}
+                <div style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {isUsingGps ? 'My Location' : userFarm.name}
+                  {isUsingGps && (
+                    <span style={{
+                      fontSize: '11px',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: 'rgba(16, 185, 129, 0.2)',
+                      color: 'var(--green-light)',
+                      border: '1px solid var(--green-primary)'
+                    }}>
+                      📡 GPS Active
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  {userFarm.location} · {userFarm.coordinates}
+                  {isUsingGps ? gpsLocationName : (userFarm.location ? `${userFarm.location} · ${userFarm.coordinates}` : userFarm.coordinates)}
                 </div>
-                {userFarm.area && userFarm.area > 0 && (
+                {!isUsingGps && userFarm.area && userFarm.area > 0 && (
                   <div style={{ fontSize: 'var(--body)', color: 'var(--text-tertiary)', marginTop: '4px' }}>
                     Area: {userFarm.area} acres
                   </div>
                 )}
               </div>
-              <div>
-                <label style={{ fontSize: 'var(--body)', color: 'var(--text-tertiary)', marginBottom: 'var(--space-xs)', display: 'block' }}>
-                  Forecast Period
-                </label>
-                <div style={{ display: 'flex', gap: 'var(--space-xs)' }}>
-                  {[7, 14].map((days) => (
+              
+              <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
+                {/* Geolocation Controls */}
+                <div>
+                  <label style={{ fontSize: 'var(--body)', color: 'var(--text-tertiary)', marginBottom: 'var(--space-xs)', display: 'block' }}>
+                    Geolocation
+                  </label>
+                  <div style={{ display: 'flex', gap: 'var(--space-xs)' }}>
                     <button
-                      key={days}
-                      onClick={() => setForecastDays(days)}
-                      className={forecastDays === days ? 'btn btn-primary' : 'btn btn-secondary'}
-                      style={{ padding: 'var(--space-xs) var(--space-md)', fontSize: 'var(--body)' }}
+                      onClick={handleDetectLocation}
+                      className={isUsingGps ? 'btn btn-primary' : 'btn btn-secondary'}
+                      style={{ 
+                        padding: 'var(--space-xs) var(--space-md)', 
+                        fontSize: 'var(--body)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: isUsingGps ? 'linear-gradient(135deg, var(--green-primary) 0%, var(--green-dark) 100%)' : undefined
+                      }}
                     >
-                      {days} Days
+                      📍 {isUsingGps ? 'GPS Detected' : 'Detect GPS'}
                     </button>
-                  ))}
+                    {isUsingGps && (
+                      <button
+                        onClick={() => setIsUsingGps(false)}
+                        className="btn btn-secondary"
+                        style={{ 
+                          padding: 'var(--space-xs) var(--space-md)', 
+                          fontSize: 'var(--body)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        🏠 Reset to Farm
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 'var(--body)', color: 'var(--text-tertiary)', marginBottom: 'var(--space-xs)', display: 'block' }}>
+                    Forecast Period
+                  </label>
+                  <div style={{ display: 'flex', gap: 'var(--space-xs)' }}>
+                    {[7, 14].map((days) => (
+                      <button
+                        key={days}
+                        onClick={() => setForecastDays(days)}
+                        className={forecastDays === days ? 'btn btn-primary' : 'btn btn-secondary'}
+                        style={{ padding: 'var(--space-xs) var(--space-md)', fontSize: 'var(--body)' }}
+                      >
+                        {days} Days
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -750,86 +547,8 @@ const Weather: React.FC = () => {
           </div>
         </div>
 
-        {/* Zone Irrigation Plan */}
-        {zonesForFarm.length > 0 && mlIrrigation && (
-          <div className="card-apple" style={{ marginBottom: 'var(--space-lg)' }}>
-            <div className="pill" style={{ marginBottom: 'var(--space-sm)' }}>Zone Irrigation Plan</div>
-            <div style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)' }}>
-              Based on {currentWeather.location} conditions and farm zones.
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-md)' }}>
-              {(() => {
-                const totalArea = zonesForFarm.reduce((s, z) => s + (z.area_acres || 0), 0) || 1;
-                const targetMoisture = 60;
-                return zonesForFarm.map((z, i) => {
-                  const moisturePct = Math.round((z.moisture || 0) * 100);
-                  const areaFactor = (z.area_acres || 0) / totalArea;
-                  const deficitFactor = Math.min(1.4, Math.max(0.6, (100 - moisturePct) / 100 * 1.2));
-                  const zoneWater = Math.round(mlIrrigation.water_mm * areaFactor * deficitFactor);
-                  const zoneDuration = Math.max(0.2, Number((mlIrrigation.duration_hours * areaFactor * deficitFactor).toFixed(2)));
-                  const method = zoneWater <= 5 ? 'Drip' : zoneWater <= 12 ? 'Sprinkler' : 'Flood';
-                  const optimalTime = '6:00 AM - 7:00 AM';
-                  return (
-                    <div key={z.id || i} style={{ padding: 'var(--space-md)', border: '1px solid var(--border-color)', borderRadius: 'var(--space-xs)', background: 'var(--bg-tertiary)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-sm)' }}>
-                        <div style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)' }}>Zone {i + 1}</div>
-                        <div style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(16,185,129,0.12)', color: 'var(--green-light)', fontSize: 11, fontWeight: 700 }}>
-                          {moisturePct}% moisture
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)' }}>
-                        Soil: {z.soil_type} · Area: {z.area_acres} acres
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }}>
-                        <div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Water</div>
-                          <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{zoneWater} mm</div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Duration</div>
-                          <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{zoneDuration} h</div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Method</div>
-                          <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{method}</div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Optimal Time</div>
-                          <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{optimalTime}</div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        Use {method.toLowerCase()} irrigation. Target {targetMoisture}% soil moisture. Adjust flow to reach {zoneWater} mm evenly across {z.area_acres} acres.
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          </div>
-        )}
+        {/* Zone Irrigation Plan Removed */}
 
-
-        {/* Micro Weather Forecasting - Multi-Radius Zones */}
-        <div style={{ marginBottom: 'var(--space-xl)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
-            <div className="pill" style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: 'var(--green-primary)', color: 'var(--green-light)' }}>
-              🎯 Micro Weather Zones
-            </div>
-          </div>
-          <h2 style={{ fontSize: 'var(--h1)', marginBottom: 'var(--space-sm)', color: 'var(--text-primary)' }}>
-            Multi-Radius Weather Analysis
-          </h2>
-          <p style={{ fontSize: 'var(--body-lg)', color: 'var(--text-secondary)', maxWidth: 'var(--narrow-width)', marginBottom: 'var(--space-lg)' }}>
-            Unique micro weather forecasting: Get weather predictions for 2km, 10km, and 20km radius zones around your farm. Gemini AI analyzes patterns to predict rainfall chances, soil quality risks, and other critical factors.
-          </p>
-
-          <div style={{ display: 'grid', gap: 'var(--space-lg)' }}>
-            {microWeatherZones.map((zone) => (
-              <MicroWeatherZoneCard key={zone.radius} zone={zone} />
-            ))}
-          </div>
-        </div>
 
         {/* Forecast Grid */}
         <div style={{ marginBottom: 'var(--space-lg)' }}>
@@ -873,90 +592,7 @@ const Weather: React.FC = () => {
         </div>
 
         {/* Irrigation Timing Recommendations - ML Model Generated */}
-        {zoneLocks.length === 0 && (
-        <div className="card-apple">
-          <div className="pill" style={{ marginBottom: 'var(--space-md)' }}>💧 Irrigation Timing Schedule (ML + AI Optimized)</div>
-          <p style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' }}>
-            AI-powered irrigation schedule based on {forecastDays}-day weather forecast, soil moisture, and crop requirements:
-          </p>
-          <div style={{ display: 'grid', gap: 'var(--space-md)', marginBottom: 'var(--space-md)' }}>
-            {mlInsights.irrigationTiming.schedule.map((schedule, i) => (
-              <div
-                key={i}
-                style={{
-                  padding: 'var(--space-md)',
-                  background: schedule.priority === 'HIGH' ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-tertiary)',
-                  borderRadius: 'var(--space-xs)',
-                  border: `2px solid ${schedule.priority === 'HIGH' ? 'var(--green-primary)' : 'var(--border-color)'}`,
-                  borderLeft: `4px solid ${schedule.priority === 'HIGH' ? 'var(--green-primary)' : 'var(--green-light)'}`,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-sm)', flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
-                  <div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Day {schedule.day} · {schedule.date}</div>
-                    <div style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
-                      {schedule.optimalTime}
-                    </div>
-                    <div style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                      {schedule.reason}
-                    </div>
-                  </div>
-                  <div style={{ 
-                    padding: '4px 8px', 
-                    borderRadius: '4px',
-                    background: schedule.priority === 'HIGH' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.08)',
-                    color: 'var(--green-light)',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                  }}>
-                    {schedule.priority} PRIORITY
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 'var(--space-sm)', marginTop: 'var(--space-sm)' }}>
-                  <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Duration</div>
-                    <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{schedule.duration}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Water Volume</div>
-                    <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{schedule.waterVolume}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Confidence</div>
-                    <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--green-light)' }}>{schedule.confidence}%</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ 
-            padding: 'var(--space-md)', 
-            background: 'rgba(16, 185, 129, 0.1)', 
-            borderRadius: 'var(--space-xs)',
-            border: '1px solid var(--green-primary)',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: 'var(--space-md)'
-          }}>
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Total Water Needed</div>
-              <div style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--green-primary)' }}>{mlInsights.irrigationTiming.totalWaterNeeded}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Estimated Cost</div>
-              <div style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)' }}>{mlInsights.irrigationTiming.estimatedCost}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Water Efficiency</div>
-              <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--green-light)' }}>{mlInsights.irrigationTiming.waterEfficiency}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Expected Benefit</div>
-              <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--green-light)' }}>{mlInsights.irrigationTiming.expectedYieldBenefit}</div>
-            </div>
-          </div>
-        </div>
-        )}
+        {/* mlInsights UI block removed to prevent crash as mlInsights state was removed */}
 
         {/* Temperature Chart */}
         <div className="card-apple" style={{ marginTop: 'var(--space-lg)' }}>
@@ -977,65 +613,7 @@ const Weather: React.FC = () => {
           </div>
           <GeminiCard />
 
-          {/* Priority Action - Irrigation Recommendation */}
-          <div style={{ 
-            padding: 'var(--space-md)', 
-            background: mlInsights.irrigationRecommendation.action === 'IRRIGATE_NOW' ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-tertiary)',
-            borderRadius: 'var(--space-xs)',
-            border: '2px solid var(--green-primary)',
-            marginBottom: 'var(--space-lg)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }}>
-              <span style={{ fontSize: 'var(--h2)' }}>💧</span>
-              <div>
-                <div style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  {mlInsights.irrigationRecommendation.action === 'IRRIGATE_NOW' ? 'IRRIGATE NOW' : 'WAIT - DO NOT IRRIGATE'}
-                </div>
-                <div style={{ fontSize: 'var(--body)', color: 'var(--text-tertiary)' }}>
-                  Confidence: {mlInsights.irrigationRecommendation.confidence}%
-                </div>
-              </div>
-            </div>
-            <div style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)', lineHeight: 1.6 }}>
-              {mlInsights.irrigationRecommendation.reason}
-            </div>
-            {mlInsights.irrigationRecommendation.action === 'IRRIGATE_NOW' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-sm)', marginTop: 'var(--space-md)' }}>
-                <div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Optimal Time</div>
-                  <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--green-light)' }}>{mlInsights.irrigationRecommendation.optimalTime}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Duration</div>
-                  <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{mlInsights.irrigationRecommendation.duration}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Water Volume</div>
-                  <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{mlInsights.irrigationRecommendation.waterVolume}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Expected Benefit</div>
-                  <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--green-light)' }}>{mlInsights.irrigationRecommendation.expectedBenefit}</div>
-                </div>
-              </div>
-            )}
-            <div style={{ marginTop: 'var(--space-sm)', padding: 'var(--space-sm)', background: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--space-xs)', borderLeft: '3px solid #ef4444' }}>
-              <div style={{ fontSize: '12px', color: '#ef4444', fontWeight: 600 }}>⚠️ Risk if delayed:</div>
-              <div style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)' }}>{mlInsights.irrigationRecommendation.riskIfDelayed}</div>
-            </div>
-          </div>
-
-          {/* Simple Tips - Minimal for Farmers */}
-          <div>
-            <h3 style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-md)' }}>
-              💡 Simple Tips
-            </h3>
-            <div style={{ display: 'grid', gap: 'var(--space-sm)' }}>
-              {mlInsights.bestPractices.map((practice, i) => (
-                <SimpleTipCard key={i} practice={practice} />
-              ))}
-            </div>
-          </div>
+          {/* mlInsights UI removed */}
         </div>
       </div>
     </section>
@@ -1108,11 +686,9 @@ const ForecastDay: React.FC<ForecastDayProps> = ({ day, isToday }) => {
         {day.low}°
       </div>
       <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: 'var(--space-xs)' }}>{day.condition}</div>
-      {day.rainChance > 0 && (
-        <div style={{ fontSize: '11px', color: 'var(--green-light)', marginTop: 'var(--space-xs)' }}>
-          💧 {day.rainChance}% ({day.rainAmount}mm)
-        </div>
-      )}
+      <div style={{ fontSize: '11px', color: 'var(--green-light)', marginTop: 'var(--space-xs)' }}>
+        💧 {day.rainChance}% ({day.rainAmount}mm)
+      </div>
     </div>
   );
 };
@@ -1655,236 +1231,6 @@ const SimpleTipCard: React.FC<SimpleTipCardProps> = ({ practice }) => (
   </div>
 );
 
-interface MicroWeatherZoneCardProps {
-  zone: {
-    radius: number;
-    label: string;
-    description: string;
-    current: {
-      temperature: number;
-      humidity: number;
-      windSpeed: number;
-      condition: string;
-      pressure: number;
-    };
-    forecast: Array<{
-      date: Date;
-      high: number;
-      low: number;
-      condition: string;
-      rainChance: number;
-      rainAmount: number;
-    }>;
-    geminiPredictions: {
-      rainfallChance: {
-        next24h: number;
-        next48h: number;
-        next7days: number;
-        confidence: number;
-        analysis: string;
-      };
-      soilDegradationRisk: {
-        risk: string;
-        probability: number;
-        factors: string[];
-        timeframe: string;
-        recommendation: string;
-      };
-      otherInsights: string[];
-    };
-  };
-}
-
-const MicroWeatherZoneCard: React.FC<MicroWeatherZoneCardProps> = ({ zone }) => {
-  const riskColors: Record<string, string> = {
-    LOW: 'var(--green-light)',
-    MODERATE: '#f59e0b',
-    HIGH: '#ef4444',
-    CRITICAL: '#dc2626',
-  };
-
-  return (
-    <div className="card-apple" style={{ border: '2px solid var(--border-color)' }}>
-      {/* Zone Header */}
-      <div style={{ marginBottom: 'var(--space-md)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-xs)', flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
-          <div>
-            <h3 style={{ fontSize: 'var(--h2)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
-              {zone.label}
-            </h3>
-            <p style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)' }}>{zone.description}</p>
-          </div>
-          <div style={{
-            padding: 'var(--space-xs) var(--space-md)',
-            borderRadius: 'var(--space-xs)',
-            background: 'rgba(16, 185, 129, 0.15)',
-            border: '1px solid var(--green-primary)',
-            color: 'var(--green-light)',
-            fontSize: 'var(--body)',
-            fontWeight: 600,
-          }}>
-            {zone.radius}km Radius
-          </div>
-        </div>
-      </div>
-
-      {/* Current Weather */}
-      <div style={{ 
-        padding: 'var(--space-md)', 
-        background: 'var(--bg-tertiary)', 
-        borderRadius: 'var(--space-xs)',
-        marginBottom: 'var(--space-md)',
-        border: '1px solid var(--border-color)',
-      }}>
-        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: 'var(--space-sm)' }}>Current Conditions</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 'var(--space-md)' }}>
-          <div>
-            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Temperature</div>
-            <div style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)' }}>{zone.current.temperature}°C</div>
-          </div>
-          <div>
-            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Condition</div>
-            <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{zone.current.condition}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Humidity</div>
-            <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{zone.current.humidity}%</div>
-          </div>
-          <div>
-            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Wind Speed</div>
-            <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{zone.current.windSpeed} km/h</div>
-          </div>
-          <div>
-            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '2px' }}>Pressure</div>
-            <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>{zone.current.pressure} hPa</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Gemini AI Predictions */}
-      <div style={{ marginBottom: 'var(--space-md)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
-          <h4 style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)' }}>
-            🤖 AI Predictions (Gemini)
-          </h4>
-          <div className="pill" style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: 'var(--green-primary)', color: 'var(--green-light)', fontSize: '11px' }}>
-            Powered by Gemini AI
-          </div>
-        </div>
-
-        {/* Rainfall Chance Prediction */}
-        <div style={{ 
-          padding: 'var(--space-md)', 
-          background: 'rgba(16, 185, 129, 0.08)', 
-          borderRadius: 'var(--space-xs)',
-          border: '1px solid var(--green-primary)',
-          marginBottom: 'var(--space-md)',
-        }}>
-          <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-sm)' }}>
-            🌧️ Rainfall Probability
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 'var(--space-md)', marginBottom: 'var(--space-sm)' }}>
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Next 24h</div>
-              <div style={{ fontSize: 'var(--h3)', fontWeight: 700, color: zone.geminiPredictions.rainfallChance.next24h > 50 ? 'var(--green-light)' : 'var(--text-primary)' }}>
-                {zone.geminiPredictions.rainfallChance.next24h}%
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Next 48h</div>
-              <div style={{ fontSize: 'var(--h3)', fontWeight: 700, color: zone.geminiPredictions.rainfallChance.next48h > 50 ? 'var(--green-light)' : 'var(--text-primary)' }}>
-                {zone.geminiPredictions.rainfallChance.next48h}%
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Next 7 Days</div>
-              <div style={{ fontSize: 'var(--h3)', fontWeight: 700, color: zone.geminiPredictions.rainfallChance.next7days > 50 ? 'var(--green-light)' : 'var(--text-primary)' }}>
-                {zone.geminiPredictions.rainfallChance.next7days}%
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Confidence</div>
-              <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--green-light)' }}>
-                {zone.geminiPredictions.rainfallChance.confidence}%
-              </div>
-            </div>
-          </div>
-          <div style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)', lineHeight: 1.6, fontStyle: 'italic', marginTop: 'var(--space-sm)', padding: 'var(--space-sm)', background: 'var(--bg-tertiary)', borderRadius: 'var(--space-xs)' }}>
-            💡 {zone.geminiPredictions.rainfallChance.analysis}
-          </div>
-        </div>
-
-        {/* Soil Degradation Risk */}
-        <div style={{ 
-          padding: 'var(--space-md)', 
-          background: zone.geminiPredictions.soilDegradationRisk.risk === 'HIGH' ? 'rgba(239, 68, 68, 0.1)' : 'var(--bg-tertiary)', 
-          borderRadius: 'var(--space-xs)',
-          border: `2px solid ${riskColors[zone.geminiPredictions.soilDegradationRisk.risk]}`,
-          marginBottom: 'var(--space-md)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-sm)', flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
-            <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)' }}>
-              🌱 Soil Quality Degradation Risk
-            </div>
-            <div style={{
-              padding: '4px 12px',
-              borderRadius: '6px',
-              background: `${riskColors[zone.geminiPredictions.soilDegradationRisk.risk]}20`,
-              color: riskColors[zone.geminiPredictions.soilDegradationRisk.risk],
-              fontSize: '12px',
-              fontWeight: 600,
-            }}>
-              {zone.geminiPredictions.soilDegradationRisk.risk} RISK ({zone.geminiPredictions.soilDegradationRisk.probability}%)
-            </div>
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: 'var(--space-xs)' }}>
-            Timeframe: {zone.geminiPredictions.soilDegradationRisk.timeframe}
-          </div>
-          <div style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)', lineHeight: 1.6 }}>
-            <strong>Risk Factors:</strong>
-            <ul style={{ margin: 'var(--space-xs) 0', paddingLeft: 'var(--space-md)' }}>
-              {zone.geminiPredictions.soilDegradationRisk.factors.map((factor, i) => (
-                <li key={i} style={{ marginBottom: '4px' }}>{factor}</li>
-              ))}
-            </ul>
-          </div>
-          <div style={{ 
-            padding: 'var(--space-sm)', 
-            background: 'rgba(16, 185, 129, 0.1)', 
-            borderRadius: 'var(--space-xs)',
-            borderLeft: '3px solid var(--green-primary)',
-            fontSize: 'var(--body)',
-            color: 'var(--text-primary)',
-            fontWeight: 500,
-          }}>
-            💡 <strong>Recommendation:</strong> {zone.geminiPredictions.soilDegradationRisk.recommendation}
-          </div>
-        </div>
-
-        {/* Other Insights */}
-        {zone.geminiPredictions.otherInsights.length > 0 && (
-          <div style={{ 
-            padding: 'var(--space-md)', 
-            background: 'var(--bg-tertiary)', 
-            borderRadius: 'var(--space-xs)',
-            border: '1px solid var(--border-color)',
-          }}>
-            <div style={{ fontSize: 'var(--body)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-sm)' }}>
-              🔍 Additional Insights
-            </div>
-            <div style={{ display: 'grid', gap: 'var(--space-xs)' }}>
-              {zone.geminiPredictions.otherInsights.map((insight, i) => (
-                <div key={i} style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)', lineHeight: 1.6, paddingLeft: 'var(--space-sm)', borderLeft: '2px solid var(--green-primary)' }}>
-                  {insight}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
 
 export default Weather;
 

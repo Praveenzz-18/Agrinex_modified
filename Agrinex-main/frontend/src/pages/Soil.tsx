@@ -176,6 +176,28 @@ const Soil: React.FC = () => {
     runDiagnosis();
   }, [selectedFarm?.id]);
 
+  // Auto-resolve coordinates when State or District changes manually
+  useEffect(() => {
+    if (locationSource === 'Manual' || locationSource === 'Default') {
+      const delayDebounceFn = setTimeout(async () => {
+        if (!districtName.trim()) return;
+        try {
+          const query = `${districtName}, ${stateName}`;
+          const res = await api.get('/api/geocode', { params: { q: query } });
+          const results = res.data?.results;
+          if (results && results.length > 0) {
+            const bestMatch = results[0];
+            setLatitude(Number(bestMatch.lat.toFixed(4)));
+            setLongitude(Number(bestMatch.lon.toFixed(4)));
+          }
+        } catch (err) {
+          console.warn('Geocoding failed for manual input:', err);
+        }
+      }, 800); // 800ms debounce
+      return () => clearTimeout(delayDebounceFn);
+    }
+  }, [districtName, stateName, locationSource]);
+
   // --- Handlers ---
   const handleGPSLocation = () => {
     setGpsStatus('Requesting GPS lock...');
@@ -231,15 +253,12 @@ const Soil: React.FC = () => {
         state_name: stateName,
         district_name: districtName,
         latitude,
-        longitude
+        longitude,
+        n_value: nValue,
+        p_value: pValue,
+        k_value: kValue,
+        ph_value: phValue
       };
-
-      if (isCustomSoil) {
-        payload.n_value = nValue;
-        payload.p_value = pValue;
-        payload.k_value = kValue;
-        payload.ph_value = phValue;
-      }
 
       // Crop recommendation
       const cropRes = await api.post('/api/v1/crop/recommend', payload);
@@ -318,8 +337,35 @@ const Soil: React.FC = () => {
           </div>
         )}
 
-        {/* Core Layout Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 'var(--space-xl)', alignItems: 'start' }}>
+        {/* Tab Navigation */}
+        <div style={{ display: 'flex', gap: 'var(--space-md)', marginBottom: 'var(--space-xl)', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 'var(--space-sm)' }}>
+          <button 
+            onClick={() => setActiveTab('diagnostics')}
+            style={{ 
+              background: 'none', border: 'none', fontSize: 'var(--body-lg)', fontWeight: 600, cursor: 'pointer',
+              color: activeTab === 'diagnostics' ? 'var(--green)' : 'var(--text-secondary)',
+              borderBottom: activeTab === 'diagnostics' ? '2px solid var(--green)' : 'none',
+              paddingBottom: '8px'
+            }}
+          >
+            📊 Diagnostics & Inferences
+          </button>
+          <button 
+            onClick={() => setActiveTab('studio')}
+            style={{ 
+              background: 'none', border: 'none', fontSize: 'var(--body-lg)', fontWeight: 600, cursor: 'pointer',
+              color: activeTab === 'studio' ? 'var(--green)' : 'var(--text-secondary)',
+              borderBottom: activeTab === 'studio' ? '2px solid var(--green)' : 'none',
+              paddingBottom: '8px'
+            }}
+          >
+            ⚙️ ML Training Studio
+          </button>
+        </div>
+
+        {/* Tab Content: Diagnostics */}
+        {activeTab === 'diagnostics' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 'var(--space-xl)', alignItems: 'start' }}>
           
           {/* ================================== LEFT COLUMN: INPUT CONTROLS ================================== */}
           <div style={{ display: 'grid', gap: 'var(--space-lg)' }}>
@@ -364,10 +410,12 @@ const Soil: React.FC = () => {
               {/* Location inputs */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
+                  <label htmlFor="stateNameSelect" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
                     Indian State
                   </label>
                   <select
+                    id="stateNameSelect"
+                    title="Indian State"
                     value={stateName}
                     onChange={(e) => { setStateName(e.target.value); setLocationSource('Manual'); }}
                     style={{
@@ -385,10 +433,12 @@ const Soil: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
+                  <label htmlFor="districtNameInput" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
                     District / Town
                   </label>
                   <input
+                    id="districtNameInput"
+                    title="District / Town"
                     type="text"
                     value={districtName}
                     onChange={(e) => { setDistrictName(e.target.value); setLocationSource('Manual'); }}
@@ -408,10 +458,13 @@ const Soil: React.FC = () => {
               {/* Coordinates Inputs */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
+                  <label htmlFor="latitudeInput" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
                     Latitude
                   </label>
                   <input
+                    id="latitudeInput"
+                    title="Latitude coordinate"
+                    placeholder="e.g. 12.9716"
                     type="number"
                     step="0.0001"
                     value={latitude}
@@ -427,10 +480,13 @@ const Soil: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
+                  <label htmlFor="longitudeInput" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
                     Longitude
                   </label>
                   <input
+                    id="longitudeInput"
+                    title="Longitude coordinate"
+                    placeholder="e.g. 77.5946"
                     type="number"
                     step="0.0001"
                     value={longitude}
@@ -456,10 +512,12 @@ const Soil: React.FC = () => {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
+                  <label htmlFor="soilTypeSelect" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
                     Soil Classification
                   </label>
                   <select
+                    id="soilTypeSelect"
+                    title="Soil Classification"
                     value={soilType}
                     onChange={(e) => setSoilType(e.target.value)}
                     style={{
@@ -477,10 +535,12 @@ const Soil: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
+                  <label htmlFor="soilQualitySelect" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
                     General Quality
                   </label>
                   <select
+                    id="soilQualitySelect"
+                    title="General Quality"
                     value={soilQuality}
                     onChange={(e) => setSoilQuality(e.target.value)}
                     style={{
@@ -501,10 +561,12 @@ const Soil: React.FC = () => {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
+                  <label htmlFor="soilFeelSelect" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
                     Soil Feel (Moisture preset)
                   </label>
                   <select
+                    id="soilFeelSelect"
+                    title="Soil Feel"
                     value={soilFeel}
                     onChange={(e) => setSoilFeel(e.target.value)}
                     style={{
@@ -522,10 +584,13 @@ const Soil: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
+                  <label htmlFor="applicationRateInput" style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}>
                     Irrigation Rate (mm/h)
                   </label>
                   <input
+                    id="applicationRateInput"
+                    title="Irrigation Rate"
+                    placeholder="e.g. 5.0"
                     type="number"
                     step="0.5"
                     value={applicationRate}
@@ -567,10 +632,12 @@ const Soil: React.FC = () => {
                 {/* N Slider */}
                 <div style={{ marginBottom: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Nitrogen (N_req)</span>
+                    <label htmlFor="nValueInput" style={{ color: 'var(--text-secondary)' }}>Nitrogen (N_req)</label>
                     <strong style={{ color: '#60a5fa' }}>{nValue} kg/ha</strong>
                   </div>
                   <input
+                    id="nValueInput"
+                    title="Nitrogen requirement"
                     type="range"
                     min="0"
                     max="150"
@@ -583,10 +650,12 @@ const Soil: React.FC = () => {
                 {/* P Slider */}
                 <div style={{ marginBottom: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Phosphorus (P_req)</span>
+                    <label htmlFor="pValueInput" style={{ color: 'var(--text-secondary)' }}>Phosphorus (P_req)</label>
                     <strong style={{ color: '#f43f5e' }}>{pValue} kg/ha</strong>
                   </div>
                   <input
+                    id="pValueInput"
+                    title="Phosphorus requirement"
                     type="range"
                     min="0"
                     max="100"
@@ -599,10 +668,12 @@ const Soil: React.FC = () => {
                 {/* K Slider */}
                 <div style={{ marginBottom: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Potassium (K_req)</span>
+                    <label htmlFor="kValueInput" style={{ color: 'var(--text-secondary)' }}>Potassium (K_req)</label>
                     <strong style={{ color: '#fbbf24' }}>{kValue} kg/ha</strong>
                   </div>
                   <input
+                    id="kValueInput"
+                    title="Potassium requirement"
                     type="range"
                     min="0"
                     max="150"
@@ -615,10 +686,12 @@ const Soil: React.FC = () => {
                 {/* pH Slider */}
                 <div style={{ marginBottom: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Soil pH Level</span>
+                    <label htmlFor="phValueInput" style={{ color: 'var(--text-secondary)' }}>Soil pH Level</label>
                     <strong style={{ color: '#34d399' }}>{phValue.toFixed(1)}</strong>
                   </div>
                   <input
+                    id="phValueInput"
+                    title="Soil pH Level"
                     type="range"
                     min="3.0"
                     max="11.0"
@@ -632,10 +705,12 @@ const Soil: React.FC = () => {
                 {/* Moisture Slider */}
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Soil Moisture Ratio</span>
+                    <label htmlFor="moisturePctInput" style={{ color: 'var(--text-secondary)' }}>Soil Moisture Ratio</label>
                     <strong style={{ color: '#38bdf8' }}>{moisturePct}%</strong>
                   </div>
                   <input
+                    id="moisturePctInput"
+                    title="Soil Moisture Ratio"
                     type="range"
                     min="5"
                     max="95"
@@ -921,8 +996,162 @@ const Soil: React.FC = () => {
             )}
 
           </div>
-
         </div>
+      )}
+
+        {/* Tab Content: ML Training Studio */}
+        {activeTab === 'studio' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 'var(--space-xl)', alignItems: 'start' }}>
+            
+            {/* Left Column: Hyperparameters */}
+            <div className="card-apple" style={{ background: 'rgba(2, 44, 34, 0.45)', border: '1px solid rgba(16,185,129,0.15)', backdropFilter: 'blur(16px)' }}>
+              <div style={{ marginBottom: 'var(--space-md)', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: 'var(--space-sm)' }}>
+                <h3 style={{ fontSize: 'var(--h3)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>⚙️</span> Hyperparameters & Algorithm
+                </h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Select an algorithm and tune its parameters to optimize predictions.
+                </p>
+              </div>
+
+              {trainingSuccessMessage && (
+                <div style={{ padding: '12px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--green-light)', marginBottom: '16px', border: '1px solid var(--green)', fontSize: '13px' }}>
+                  ✅ {trainingSuccessMessage}
+                </div>
+              )}
+
+              <form onSubmit={handleTrainModel} style={{ display: 'grid', gap: 'var(--space-md)' }}>
+                <div>
+                  <label htmlFor="trainingModelTypeSelect" style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600 }}>Algorithm Type</label>
+                  <select 
+                    id="trainingModelTypeSelect"
+                    title="Algorithm Type"
+                    value={trainingModelType} 
+                    onChange={e => setTrainingModelType(e.target.value)}
+                    className="input-field" 
+                    style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', padding: '10px', borderRadius: '6px', width: '100%' }}
+                  >
+                    <option value="Random Forest">Random Forest Classifier</option>
+                    <option value="Gradient Boosting">Gradient Boosting Classifier</option>
+                    <option value="Decision Tree">Decision Tree Classifier</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="trainingEstimatorsInput" style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600 }}>
+                    N Estimators (Trees)
+                    <span style={{ float: 'right', color: 'var(--green-light)' }}>{trainingEstimators}</span>
+                  </label>
+                  <input 
+                    id="trainingEstimatorsInput"
+                    title="N Estimators (Trees)"
+                    type="range" 
+                    min="10" max="250" step="10"
+                    value={trainingEstimators} 
+                    onChange={e => setTrainingEstimators(Number(e.target.value))}
+                    style={{ width: '100%', accentColor: 'var(--green)' }}
+                    disabled={trainingModelType === 'Decision Tree'}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label htmlFor="trainingMaxDepthInput" style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600 }}>Max Depth</label>
+                    <input 
+                      id="trainingMaxDepthInput"
+                      title="Max Depth"
+                      type="number" 
+                      placeholder="None"
+                      value={trainingMaxDepth} 
+                      onChange={e => setTrainingMaxDepth(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="input-field" 
+                      style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', padding: '10px', borderRadius: '6px' }}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="trainingMinSplitInput" style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600 }}>Min Split</label>
+                    <input 
+                      id="trainingMinSplitInput"
+                      title="Min Split"
+                      type="number" 
+                      placeholder="e.g. 2"
+                      value={trainingMinSplit} 
+                      onChange={e => setTrainingMinSplit(Number(e.target.value))}
+                      className="input-field" 
+                      style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', padding: '10px', borderRadius: '6px' }}
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  type="submit" 
+                  className="btn btn-primary" 
+                  disabled={isTraining}
+                  style={{ marginTop: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}
+                >
+                  {isTraining ? 'Training Model...' : 'Train New Model'}
+                  {!isTraining && <span>🚀</span>}
+                </button>
+              </form>
+            </div>
+
+            {/* Right Column: Metrics Visualization */}
+            <div className="card-apple" style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(56, 189, 248, 0.15)', backdropFilter: 'blur(16px)' }}>
+              <div style={{ marginBottom: 'var(--space-md)', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: 'var(--space-sm)' }}>
+                <h3 style={{ fontSize: 'var(--h3)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>📈</span> Model Performance Validation
+                </h3>
+              </div>
+
+              {!modelMetrics ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                  Loading metrics...
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <div style={{ fontSize: '18px', fontWeight: 600, color: '#38bdf8' }}>{modelMetrics.model_type}</div>
+                    <div style={{ background: 'rgba(56,189,248,0.1)', color: '#38bdf8', padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 600 }}>
+                      Active Production
+                    </div>
+                  </div>
+
+                  {/* Core Metrics Widgets */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+                    <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.05)', padding: '15px', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--green)' }}>{(modelMetrics.accuracy * 100).toFixed(2)}%</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '4px' }}>Accuracy</div>
+                    </div>
+                    <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.05)', padding: '15px', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 700, color: '#facc15' }}>{(modelMetrics.f1_score * 100).toFixed(2)}%</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '4px' }}>F1-Score</div>
+                    </div>
+                    <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.05)', padding: '15px', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 700, color: '#a78bfa' }}>{(modelMetrics.precision * 100).toFixed(2)}%</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '4px' }}>Precision</div>
+                    </div>
+                  </div>
+
+                  {/* Per Class Breakdown */}
+                  <div>
+                    <h4 style={{ fontSize: '14px', marginBottom: '12px', color: 'var(--text-primary)' }}>Class Classification Report</h4>
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                      {Object.keys(modelMetrics.class_metrics).map(cls => (
+                        <div key={cls} style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', padding: '8px 12px', borderRadius: '6px', fontSize: '13px' }}>
+                          <span style={{ textTransform: 'capitalize', fontWeight: 500 }}>{cls}</span>
+                          <span style={{ color: 'var(--text-secondary)' }}>
+                            F1: <strong style={{ color: 'white' }}>{(modelMetrics.class_metrics[cls].f1 * 100).toFixed(1)}%</strong>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
 
       </div>
 

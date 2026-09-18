@@ -14,9 +14,9 @@ crop_model = joblib.load(CROP_MODEL_PATH)
 
 class CropService:
     SOIL_QUALITY_MAP = {
-        "Poor": {"N": 20, "P": 10, "K": 10},
-        "Medium": {"N": 50, "P": 25, "K": 25},
-        "Rich": {"N": 90, "P": 40, "K": 40},
+        "Poor": {"N": 10, "P": 5, "K": 10},
+        "Medium": {"N": 35, "P": 15, "K": 25},
+        "Rich": {"N": 70, "P": 35, "K": 40},
     }
 
     SOIL_TYPE_MAP = {
@@ -30,6 +30,26 @@ class CropService:
         "Mixed": 6.8,         # Mixed soil (average pH)
     }
 
+    STATE_BASE_RAINFALL = {
+        "karnataka": 900.0,
+        "tamil nadu": 850.0,
+        "maharashtra": 750.0,
+        "punjab": 650.0,
+        "haryana": 650.0,
+        "west bengal": 1200.0,
+        "kerala": 1400.0,
+        "gujarat": 700.0,
+        "rajasthan": 550.0,
+        "andhra pradesh": 850.0,
+        "telangana": 800.0,
+        "uttar pradesh": 850.0,
+        "bihar": 1000.0,
+        "odisha": 1100.0,
+        "chhattisgarh": 1000.0,
+        "madhya pradesh": 850.0,
+        "assam": 1300.0,
+        "goa": 1500.0,
+    }
 
     @staticmethod
     def recommend_crops(
@@ -52,10 +72,10 @@ class CropService:
             npk = CropService.SOIL_QUALITY_MAP.get(
                 soil_quality, CropService.SOIL_QUALITY_MAP["Medium"]
             )
-            n = n_value if n_value is not None else npk["N"]
-            p = p_value if p_value is not None else npk["P"]
-            k = k_value if k_value is not None else npk["K"]
-            ph_val = ph_value if ph_value is not None else CropService.SOIL_TYPE_MAP.get(soil_type, 7.0)
+            n = float(n_value) if n_value is not None else float(npk["N"])
+            p = float(p_value) if p_value is not None else float(npk["P"])
+            k = float(k_value) if k_value is not None else float(npk["K"])
+            ph_val = float(ph_value) if ph_value is not None else float(CropService.SOIL_TYPE_MAP.get(soil_type, 7.0))
 
             # 2. Fetch weather from Open-Meteo
             if latitude is not None and longitude is not None:
@@ -66,7 +86,12 @@ class CropService:
             weather = get_openmeteo_weather(lat, lon)
             temp = weather["temperature"]
             humidity = weather["humidity"]
-            rainfall_mm = max(weather["rain_24h"], 0.0)
+            rain_24h = max(weather["rain_24h"], 0.0)
+
+            # Convert 24-hour precipitation to seasonal rainfall (mm) expected by the ML model
+            st_key = (state_name or "").strip().lower()
+            base_rainfall = CropService.STATE_BASE_RAINFALL.get(st_key, 800.0)
+            rainfall_mm = base_rainfall + (rain_24h * 10.0)
 
             # 3. Build feature dict for model
             #    Must match training feature names exactly!
@@ -91,8 +116,8 @@ class CropService:
             classes = crop_model.classes_
 
             crop_probs = [
-                {"crop": cls, "probability": float(p)}
-                for cls, p in zip(classes, proba)
+                {"crop": cls, "probability": float(p_val)}
+                for cls, p_val in zip(classes, proba)
             ]
             crop_probs.sort(key=lambda x: x["probability"], reverse=True)
 
@@ -102,9 +127,9 @@ class CropService:
                 "soil_params": {
                     "soil_type": soil_type,
                     "soil_quality": soil_quality,
-                    "N_req_kg_per_ha": npk["N"],
-                    "P_req_kg_per_ha": npk["P"],
-                    "K_req_kg_per_ha": npk["K"],
+                    "N_req_kg_per_ha": n,
+                    "P_req_kg_per_ha": p,
+                    "K_req_kg_per_ha": k,
                     "pH": ph_val,
                 },
                 "weather": weather,

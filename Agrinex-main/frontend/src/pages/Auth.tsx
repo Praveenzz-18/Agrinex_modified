@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 // @ts-ignore
 import { db } from '../lib/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import DynamicBackground from '../components/DynamicBackground';
 
 const Auth: React.FC = () => {
@@ -67,8 +67,6 @@ const Auth: React.FC = () => {
               const city = formData.get('city') as string || 'My City';
               const password = formData.get('password') as string;
               
-              // Simulate login - replace with actual backend API call
-              // For new users, redirect to profile setup; for existing users, go to dashboard
               const isNewUser = mode === 'signup';
 
               let coords = '';
@@ -100,34 +98,82 @@ const Auth: React.FC = () => {
                 } catch {}
               }
 
+              // Try to fetch existing data from Firestore first
+              let dbFarms: any[] = [];
+              let udata: any = null;
+              if (db && !isNewUser) {
+                try {
+                  const userDoc = await getDoc(doc(db, 'users', email));
+                  if (userDoc.exists()) {
+                    udata = userDoc.data();
+                    const qs = query(collection(db, 'farms'), where('owner', '==', email));
+                    const fs = await getDocs(qs);
+                    dbFarms = fs.docs.map(d => {
+                      const data = d.data() as any;
+                      return {
+                        id: data.id || d.id,
+                        name: data.name || 'Farm',
+                        location: data.location || '',
+                        coordinates: data.coordinates || '',
+                        area: Number(data.area ?? 0),
+                        cropType: data.cropType,
+                        soilType: data.soilType,
+                        moisture: typeof data.moisture === 'number' ? data.moisture : undefined,
+                      };
+                    });
+                  }
+                } catch (err) {
+                  console.error("Firestore lookup error during login:", err);
+                }
+              }
+
               // Check for existing user data in localStorage to persist profile updates
               const storedUser = localStorage.getItem('agrinex_user');
               const existingData = storedUser ? JSON.parse(storedUser) : null;
               const hasExistingData = existingData && existingData.email === email;
 
-              const farms = isNewUser ? [{
-                id: `farm_${Date.now()}`,
-                name: farm || 'My Farm',
-                location: city,
-                coordinates: coords || '0, 0',
-                area: 0,
-              }] : (hasExistingData && existingData.farms ? existingData.farms : [{
-                id: 'farm_123',
-                name: farm || 'My Farm',
-                location: 'Vidarbha, Maharashtra', // Changed default to generic
-                coordinates: '21.1458, 79.0882',
-                area: 5.2,
-              }]);
+              let finalFarms: any[] = [];
+              let finalName = name;
+              let finalPhone = '';
+              let finalAddress = '';
 
-              
+              if (isNewUser) {
+                finalFarms = [{
+                  id: `farm_${Date.now()}`,
+                  name: farm || 'My Farm',
+                  location: city,
+                  coordinates: coords || '0, 0',
+                  area: 0,
+                }];
+              } else if (dbFarms.length > 0) {
+                finalFarms = dbFarms;
+                if (udata) {
+                  finalName = udata.name || name;
+                  finalPhone = udata.phone || '';
+                  finalAddress = udata.address || '';
+                }
+              } else if (hasExistingData && existingData.farms && existingData.farms.length > 0) {
+                finalFarms = existingData.farms;
+                finalName = existingData.name || name;
+                finalPhone = existingData.phone || '';
+                finalAddress = existingData.address || '';
+              } else {
+                finalFarms = [{
+                  id: 'farm_123',
+                  name: farm || 'My Farm',
+                  location: 'Vidarbha, Maharashtra',
+                  coordinates: '21.1458, 79.0882',
+                  area: 5.2,
+                }];
+              }
 
               login({
                 id: 'user_123',
-                name: name,
+                name: finalName,
                 email: email,
-                phone: '',
-                address: '',
-                farms,
+                phone: finalPhone,
+                address: finalAddress,
+                farms: finalFarms,
               });
 
               // Navigate immediately to prevent blocking
@@ -137,16 +183,17 @@ const Auth: React.FC = () => {
               try {
                 setDoc(doc(db, 'users', email), {
                   id: 'user_123',
-                  name,
+                  name: finalName,
                   email,
-                  farms,
-                  createdAt: new Date().toISOString(),
+                  createdAt: udata?.createdAt || new Date().toISOString(),
                 }, { merge: true });
-                const fid = farms[0]?.id || `farm_${Date.now()}`;
-                setDoc(doc(db, 'farms', `${email}_${fid}`), {
-                  owner: email,
-                  ...farms[0],
-                }, { merge: true });
+                
+                for (const f of finalFarms) {
+                  setDoc(doc(db, 'farms', `${email}_${f.id}`), {
+                    owner: email,
+                    ...f,
+                  }, { merge: true });
+                }
               } catch {}
             }}
           >

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 
 export interface Farm {
   id: string;
@@ -107,15 +107,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('agrinex_user');
   };
 
-  const updateUser = (userData: Partial<User>) => {
+  const updateUser = async (userData: Partial<User>) => {
     if (user) {
       const updatedUser = { ...user, ...userData };
       setUser(updatedUser);
       localStorage.setItem('agrinex_user', JSON.stringify(updatedUser));
+      if (db && user.email) {
+        try {
+          const { farms, ...profileData } = updatedUser;
+          await setDoc(doc(db, 'users', user.email), profileData, { merge: true });
+        } catch (e) {
+          console.error("Error updating user profile in Firestore:", e);
+        }
+      }
     }
   };
 
-  const addFarm = (farm: Farm) => {
+  const addFarm = async (farm: Farm) => {
     if (user) {
       const updatedUser = {
         ...user,
@@ -124,10 +132,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       setUser(updatedUser);
       localStorage.setItem('agrinex_user', JSON.stringify(updatedUser));
+      if (db && user.email) {
+        try {
+          await setDoc(doc(db, 'farms', `${user.email}_${farm.id}`), {
+            ...farm,
+            owner: user.email,
+          });
+        } catch (e) {
+          console.error("Error adding farm to Firestore:", e);
+        }
+      }
     }
   };
 
-  const updateFarm = (farmId: string, farmData: Partial<Farm>) => {
+  const updateFarm = async (farmId: string, farmData: Partial<Farm>) => {
     if (user) {
       const updatedUser = {
         ...user,
@@ -135,10 +153,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       setUser(updatedUser);
       localStorage.setItem('agrinex_user', JSON.stringify(updatedUser));
+      if (db && user.email) {
+        try {
+          const updatedFarm = updatedUser.farms.find(farm => farm.id === farmId);
+          if (updatedFarm) {
+            await setDoc(doc(db, 'farms', `${user.email}_${farmId}`), {
+              ...updatedFarm,
+              owner: user.email,
+            }, { merge: true });
+          }
+        } catch (e) {
+          console.error("Error updating farm in Firestore:", e);
+        }
+      }
     }
   };
 
-  const deleteFarm = (farmId: string) => {
+  const deleteFarm = async (farmId: string) => {
     if (user && user.farms.length > 1) {
       const updatedFarms = user.farms.filter(farm => farm.id !== farmId);
       const updatedUser = {
@@ -148,6 +179,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       setUser(updatedUser);
       localStorage.setItem('agrinex_user', JSON.stringify(updatedUser));
+      if (db && user.email) {
+        try {
+          await deleteDoc(doc(db, 'farms', `${user.email}_${farmId}`));
+        } catch (e) {
+          console.error("Error deleting farm from Firestore:", e);
+        }
+      }
     }
   };
 
@@ -163,7 +201,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user || !user.selectedFarmId) return null;
     return user.farms.find(farm => farm.id === user.selectedFarmId) || null;
   };
-  const getSelectedFarmZoneLocks = () => {
+  const getSelectedFarmZoneLocks = (): Array<{ id: string; crop: string; area: number; estimatedCostPerAcre: number; expectedRevenuePerAcre: number }> => {
     const farm = getSelectedFarm();
     if (!farm) return [];
     const key = `agrinex_zone_locks_${farm.id}`;
