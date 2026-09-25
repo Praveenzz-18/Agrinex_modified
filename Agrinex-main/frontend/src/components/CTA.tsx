@@ -34,7 +34,7 @@ const CTA: React.FC = () => {
           >
             Start Free Pilot
           </a>
-          <a className="btn btn-secondary" href="mailto:support@agrinex.ai">
+          <a className="btn btn-secondary" href="mailto:mkr612005@gmail.com">
             Talk to an expert
           </a>
         </div>
