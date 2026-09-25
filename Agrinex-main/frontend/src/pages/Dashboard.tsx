@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 // @ts-ignore
 import { db } from '../lib/firebase';
@@ -54,7 +55,7 @@ const Dashboard: React.FC = () => {
               <div style={{ fontSize: 'var(--body)', color: 'var(--text-secondary)' }}>
                 Your name isn’t set. Update your profile to personalize the dashboard.
               </div>
-              <a className="btn btn-secondary" href="/profile">Set Name</a>
+              <Link className="btn btn-secondary" to="/profile">Set Name</Link>
             </div>
           </div>
         )}
@@ -91,7 +92,7 @@ const Dashboard: React.FC = () => {
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-lg)' }}>
-          <a href="/weather" style={{ textDecoration: 'none' }}>
+          <Link to="/weather" style={{ textDecoration: 'none' }}>
             <div className="card-apple" style={{ cursor: 'pointer' }}>
               <div style={{ fontSize: 'var(--h2)', marginBottom: 'var(--space-sm)' }}>🌤️</div>
               <h3 style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-xs)' }}>
@@ -101,8 +102,8 @@ const Dashboard: React.FC = () => {
                 View micro weather forecasts and irrigation recommendations
               </p>
             </div>
-          </a>
-          <a href="/soil" style={{ textDecoration: 'none' }}>
+          </Link>
+          <Link to="/soil" style={{ textDecoration: 'none' }}>
             <div className="card-apple" style={{ cursor: 'pointer' }}>
               <div style={{ fontSize: 'var(--h2)', marginBottom: 'var(--space-sm)' }}>🌱</div>
               <h3 style={{ fontSize: 'var(--h3)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-xs)' }}>
@@ -112,7 +113,7 @@ const Dashboard: React.FC = () => {
                 Monitor soil health and salinity predictions
               </p>
             </div>
-          </a>
+          </Link>
         </div>
         <style>{`
           @keyframes pulseGradient {

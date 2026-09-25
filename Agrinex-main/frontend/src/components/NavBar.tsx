@@ -154,7 +154,16 @@ const NavBar: React.FC = () => {
               )}
             </div>
           ) : (
-            <a className="nav-link auth-link" href="/auth">Log In</a>
+            <a 
+              className="nav-link auth-link" 
+              href="/auth"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate('/auth');
+              }}
+            >
+              Log In
+            </a>
           )}
         </div>
       </div>

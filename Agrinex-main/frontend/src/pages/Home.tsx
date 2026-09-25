@@ -1,5 +1,5 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Hero from '../components/Hero';
 import FeatureCard from '../components/FeatureCard';
@@ -82,7 +82,7 @@ const Home: React.FC = () => {
                   <strong style={{ color: 'var(--text-primary)' }}>Agrinex is built exclusively for agriculture.</strong> Unlike generic farm management tools, we provide micro weather forecasting for your exact location, AI-powered crop recommendations based on soil and climate, zone-based soil analytics that tell you which crop grows best where, explainable irrigation decisions, salinity predictions, and lender-ready ROI reports — helping you maximize yield, reduce costs, and access credit faster.
                 </p>
                 <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-md)', flexWrap: 'wrap' }}>
-                  <a className="btn btn-primary" href="/auth">Start Free Trial</a>
+                  <Link className="btn btn-primary" to="/auth">Start Free Trial</Link>
                   <a className="btn btn-secondary" href="#features">Explore Features</a>
                 </div>
               </div>

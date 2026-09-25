@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 
 const Footer: React.FC = () => {
   return (
@@ -18,9 +19,9 @@ const Footer: React.FC = () => {
           </div>
           <div>
             <div className="title">Platform</div>
-            <a href="/soil">Soil Intelligence</a>
+            <Link to="/soil">Soil Intelligence</Link>
             <br />
-            <a href="/weather">Weather Forecast</a>
+            <Link to="/weather">Weather Forecast</Link>
           </div>
           <div>
             <div className="title">Support</div>

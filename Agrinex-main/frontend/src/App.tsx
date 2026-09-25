@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import NavBar from './components/NavBar';
@@ -9,9 +9,16 @@ import Dashboard from './pages/Dashboard';
 import Weather from './pages/Weather';
 import Profile from './pages/Profile';
 import Soil from './pages/Soil';
+import api from './lib/api';
 
 const AppShell: React.FC = () => {
   const location = useLocation();
+
+  useEffect(() => {
+    // Warm up backend on initial page load
+    api.get('/health').catch(() => {});
+  }, []);
+
   return (
     <div className="page">
       <NavBar />
