@@ -123,7 +123,7 @@ const Weather: React.FC = () => {
         alert(`Failed to detect location: ${error.message}`);
         setLoading(false);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
