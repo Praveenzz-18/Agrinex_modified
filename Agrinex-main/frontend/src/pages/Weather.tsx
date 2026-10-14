@@ -8,29 +8,9 @@ import { doc, setDoc } from 'firebase/firestore';
 /**
  * Micro Weather Forecasting Page
  * 
- * Backend Integration Notes:
- * - Fetch logged-in user's farm location from auth context/API
- * - Replace mock data below with backend API calls
- * - Use useEffect to fetch data when forecastDays changes
- * - Map API response to the data structures defined below
- * - Add loading states and error handling
- * 
- * Expected Backend Endpoints:
- * - Get user farm: GET /api/user/farm (returns farm location, coordinates)
- * - Current weather: GET /api/weather/current?farmId={id}
- * - Forecast: GET /api/weather/forecast?farmId={id}&days={7|14}
- * - Gemini Insights: POST /api/weather/gemini-insights?farmId={id}&forecastDays={days}
- * 
- * Gemini API Integration:
- * - Backend should call Gemini API with weather data, soil data, crop data
- * - Gemini generates: cultivation action plan, risk alerts, best practices
- * - ML models provide: irrigation timing schedule, yield projections
- * - Combined response includes both ML predictions and Gemini AI analysis
- * 
- * Real-Time Updates:
- * - Use WebSocket or polling (every 5-10 minutes) for live weather updates
- * - ML models + Gemini API will recalculate insights automatically when weather data changes
- * - Example: useEffect(() => { fetchGeminiInsights(); const interval = setInterval(fetchGeminiInsights, 300000); return () => clearInterval(interval); }, [forecastDays, userFarm.id]);
+ * Weather Integration:
+ * - Single combined endpoint: GET /api/v1/weather/all
+ * - Powered directly by Open-Meteo
  */
 
 const Weather: React.FC = () => {
@@ -83,7 +63,6 @@ const Weather: React.FC = () => {
     avgWindSpeed: 11,
     extremeDays: 2,
   });
-  const [gemini, setGemini] = useState<any | null>(null);
   const zoneLocks = getSelectedFarmZoneLocks();
   const [geoCoords, setGeoCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [zonesForFarm, setZonesForFarm] = useState<Array<{ id: string; area_acres: number; soil_type: string; moisture: number; crop_suggestion: string; suitability: number }>>([]);
@@ -174,43 +153,39 @@ const Weather: React.FC = () => {
           lon: lon ?? 76.7794 
         });
 
-        // 3. Fetch Current Weather, Forecast, Analytics, and Gemini Insights sequentially with individual error handling
-        // 3a. Current Weather
+        // 3. Fetch all weather data in a single request to /api/v1/weather/all
         try {
-          const curRes = await api.get(`/api/v1/weather/current`, { params: { lat, lon } });
-          if (!cancelled && curRes.data) {
-            const curJson = curRes.data;
+          const res = await api.get(`/api/v1/weather/all`, { params: { lat, lon, days: forecastDays } });
+          if (cancelled) return;
+
+          const { current, forecast, analytics: anJson } = res.data || {};
+
+          // Update Current Weather state
+          if (current) {
             setCurrentWeather({
               location: locationName,
               coordinates: `${lat?.toFixed(4)}, ${lon?.toFixed(4)}`,
-              temperature: curJson.temperature,
-              feelsLike: curJson.feelsLike,
-              condition: curJson.condition,
-              humidity: curJson.humidity,
-              windSpeed: curJson.windSpeed,
-              windDirection: curJson.windDirection,
-              pressure: curJson.pressure,
-              visibility: curJson.visibility,
-              uvIndex: curJson.uvIndex,
-              aqi: curJson.aqi,
-              precipMm: curJson.precipMm,
-              rainChance: curJson.rainChance,
-              sunrise: curJson.sunrise,
-              sunset: curJson.sunset,
-              lastUpdated: curJson.lastUpdated,
+              temperature: current.temperature,
+              feelsLike: current.feelsLike,
+              condition: current.condition,
+              humidity: current.humidity,
+              windSpeed: current.windSpeed,
+              windDirection: current.windDirection,
+              pressure: current.pressure,
+              visibility: current.visibility,
+              uvIndex: current.uvIndex,
+              aqi: current.aqi,
+              precipMm: current.precipMm,
+              rainChance: current.rainChance,
+              sunrise: current.sunrise,
+              sunset: current.sunset,
+              lastUpdated: current.lastUpdated,
             });
           }
-        } catch (err) {
-          console.error("Error fetching current weather:", err);
-        }
 
-        if (cancelled) return;
-
-        // 3b. Forecast
-        try {
-          const fcRes = await api.get(`/api/v1/weather/forecast`, { params: { lat, lon, days: forecastDays } });
-          if (!cancelled && fcRes.data?.days && Array.isArray(fcRes.data.days)) {
-            const mappedForecast = fcRes.data.days.map((d: any) => ({
+          // Update Forecast state
+          if (forecast?.days && Array.isArray(forecast.days)) {
+            const mappedForecast = forecast.days.map((d: any) => ({
               date: new Date(d.date),
               high: d.high,
               low: d.low,
@@ -222,17 +197,9 @@ const Weather: React.FC = () => {
             }));
             setForecastData(mappedForecast);
           }
-        } catch (err) {
-          console.error("Error fetching weather forecast:", err);
-        }
 
-        if (cancelled) return;
-
-        // 3c. Analytics
-        try {
-          const anRes = await api.get(`/api/v1/weather/analytics`, { params: { lat, lon, days: forecastDays } });
-          if (!cancelled && anRes.data) {
-            const anJson = anRes.data;
+          // Update Analytics state
+          if (anJson) {
             setAnalytics({
               avgTemp: anJson.avgTemp,
               maxTemp: anJson.maxTemp,
@@ -244,19 +211,7 @@ const Weather: React.FC = () => {
             });
           }
         } catch (err) {
-          console.error("Error fetching weather analytics:", err);
-        }
-
-        if (cancelled) return;
-
-        // 3d. Gemini Insights
-        try {
-          const gemRes = await api.post(`/api/v1/weather/gemini-insights`, { lat, lon, days: forecastDays });
-          if (!cancelled && gemRes.data) {
-            setGemini(gemRes.data);
-          }
-        } catch (err) {
-          console.error("Error fetching Gemini insights:", err);
+          console.error("Error fetching weather data from /api/v1/weather/all:", err);
         }
 
       } catch (err) {
@@ -296,93 +251,14 @@ const Weather: React.FC = () => {
     fetchZonesForWeather();
     return () => { cancelled = true; };
   }, [selectedFarm?.id, geoCoords?.lat, geoCoords?.lon]);
-  // useEffect(() => {
-  //   if (!selectedFarm) return;
-  //   
-  //   const fetchMLInsights = async () => {
-  //     setLoading(true);
-  //     try {
-  //       // Backend will call Gemini API and combine with ML model predictions
-  //       const response = await fetch(`/api/weather/gemini-insights?farmId=${selectedFarm.id}&forecastDays=${forecastDays}`, {
-  //         method: 'POST',
-  //         headers: { 'Content-Type': 'application/json' },
-  //         body: JSON.stringify({
-  //           forecastData,
-  //           currentWeather,
-  //           soilData: {}, // Add soil data from sensors
-  //           cropData: {}, // Add current crop information
-  //         })
-  //       });
-  //       const data = await response.json();
-  //       // Response includes: irrigationTiming, cultivationRecommendations, riskAlerts, bestPractices
-  //       setMLInsights(data);
-  //     } catch (error) {
-  //       console.error('Failed to fetch Gemini insights:', error);
-  //     } finally {
-  //       setLoading(false);
-  //     }
-  //   };
-  //   
-  //   fetchMLInsights();
-  //   // Poll every 5 minutes for real-time updates
-  //   const interval = setInterval(fetchMLInsights, 300000);
-  //   return () => clearInterval(interval);
-  // }, [forecastDays, selectedFarm?.id, forecastData, currentWeather]);
+
 
   
 
 
   
 
-  const GeminiCard = () => {
-    if (!gemini) return null;
-    return (
-      <div className="card-apple" style={{ padding: 'var(--space-lg)', marginTop: 'var(--space-lg)' }}>
-        <div style={{ fontSize: 'var(--body)', color: 'var(--text-tertiary)', marginBottom: 'var(--space-xs)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span>✨</span> AI Insights & Recommendations
-        </div>
-        <div style={{ fontSize: 'var(--body-lg)', color: 'var(--text-primary)', lineHeight: 1.6 }}>
-          {gemini.summary?.text || 'No insights'}
-        </div>
-        {gemini.recommendations && (
-          <div style={{ marginTop: 'var(--space-md)', display: 'grid', gap: 'var(--space-sm)' }}>
-            {gemini.recommendations.map((rec: any, i: number) => (
-              <div key={i} style={{ padding: 'var(--space-sm)', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)' }}>
-                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '4px' }}>{rec.title}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{rec.text}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-  // TODO: Replace with Gemini API integration
-  // Backend endpoint: POST /api/weather/gemini-insights
-  // Payload: { farmId, forecastData, currentWeather, soilData, cropData }
-  // Gemini will generate: cultivation action plan, risk alerts, best practices
-  // 
-  // Example backend implementation:
-  // const geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', {
-  //   method: 'POST',
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //     'x-goog-api-key': process.env.GEMINI_API_KEY
-  //   },
-  //   body: JSON.stringify({
-  //     contents: [{
-  //       parts: [{
-  //         text: `Analyze this weather data for agriculture: ${JSON.stringify({forecastData, currentWeather})} 
-  //         Generate: 1) Cultivation action plan, 2) Risk alerts, 3) Best practices`
-  //       }]
-  //     }]
-  //   })
-  // });
 
-  // TODO: Replace with real-time ML model insights + Gemini API
-  // These will update automatically as weather data changes
-  // Backend will combine ML model predictions with Gemini AI analysis
-  // mlInsights block removed
 
   return (
     <section className="section" style={{ paddingTop: 'var(--space-xl)' }}>
@@ -624,16 +500,6 @@ const Weather: React.FC = () => {
         <div className="card-apple" style={{ marginTop: 'var(--space-lg)' }}>
           <div className="pill" style={{ marginBottom: 'var(--space-md)' }}>Rainfall Probability</div>
           <RainfallChart data={forecastData} />
-        </div>
-
-        {/* Agriculture Insights */}
-        <div className="card-apple" style={{ marginTop: 'var(--space-lg)', background: 'rgba(16, 185, 129, 0.08)', borderColor: 'var(--green-primary)' }}>
-          <div className="pill" style={{ marginBottom: 'var(--space-md)', background: 'rgba(16, 185, 129, 0.15)', borderColor: 'var(--green-primary)', color: 'var(--green-light)' }}>
-            💡 AI Recommendations
-          </div>
-          <GeminiCard />
-
-          {/* mlInsights UI removed */}
         </div>
       </div>
     </section>

@@ -72,6 +72,11 @@ class WeatherAnalyticsOut(BaseModel):
     avgWindSpeed: float
     extremeDays: int
 
+class WeatherAllOut(BaseModel):
+    current: CurrentWeatherOut
+    forecast: ForecastOut
+    analytics: WeatherAnalyticsOut
+
 class GeminiInsightsOut(BaseModel):
     summary: Dict[str, str]
     recommendations: List[Dict[str, str]]
@@ -116,6 +121,7 @@ def root():
             "/api/v1/crop/recommend",
             "/api/v1/irrigation/recommend", 
             "/api/v1/combined",
+            "/api/v1/weather/all",
             "/api/v1/weather/current",
             "/api/v1/weather/forecast",
             "/api/v1/weather/analytics",
@@ -270,21 +276,46 @@ async def geocode(q: str):
     return {"results": results}
 
 
-async def fetch_open_meteo(lat: float, lon: float, days: int = 7):
-    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure&daily=weather_code,temperature_2m_max,temperature_2m_min,relative_humidity_2m_mean,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max&timezone=auto&forecast_days={days}"
-    async with httpx.AsyncClient() as client:
-        res = await client.get(url)
-    if res.status_code != 200:
-        raise HTTPException(status_code=res.status_code, detail="Weather API error")
-    return res.json()
+_weather_cache: Dict[Any, Any] = {}
 
-@app.get("/api/v1/weather/current", response_model=CurrentWeatherOut)
-async def get_current_weather(lat: float, lon: float):
-    data = await fetch_open_meteo(lat, lon, 1)
+async def fetch_open_meteo(lat: float, lon: float, days: int = 7):
+    now = datetime.utcnow().timestamp()
+    lat_k = round(lat, 3)
+    lon_k = round(lon, 3)
+
+    # Check for valid cached data with at least requested number of days (5 min TTL)
+    for (c_lat, c_lon, c_days), (cached_data, timestamp) in list(_weather_cache.items()):
+        if c_lat == lat_k and c_lon == lon_k and c_days >= days:
+            if now - timestamp < 300:
+                return cached_data
+
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure&daily=weather_code,temperature_2m_max,temperature_2m_min,relative_humidity_2m_mean,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max&timezone=auto&forecast_days={days}"
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(url, timeout=10.0)
+        if res.status_code == 200:
+            data = res.json()
+            _weather_cache[(lat_k, lon_k, days)] = (data, now)
+            return data
+        
+        # If rate limited (429) or error from Open-Meteo, serve stale cache if any exists
+        for (c_lat, c_lon, _), (cached_data, _) in list(_weather_cache.items()):
+            if c_lat == lat_k and c_lon == lon_k:
+                return cached_data
+        raise HTTPException(status_code=res.status_code, detail="Weather API error")
+    except httpx.RequestError as exc:
+        for (c_lat, c_lon, _), (cached_data, _) in list(_weather_cache.items()):
+            if c_lat == lat_k and c_lon == lon_k:
+                return cached_data
+        raise HTTPException(status_code=503, detail=f"Weather service unavailable: {str(exc)}")
+
+@app.get("/api/v1/weather/all", response_model=WeatherAllOut)
+async def get_all_weather(lat: float, lon: float, days: int = Query(7, ge=1, le=14)):
+    data = await fetch_open_meteo(lat, lon, days)
     curr = data.get("current", {})
     daily = data.get("daily", {})
-    
-    return CurrentWeatherOut(
+
+    current = CurrentWeatherOut(
         location="Farm Location",
         coordinates={"lat": lat, "lon": lon},
         temperature=curr.get("temperature_2m", 0),
@@ -304,12 +335,7 @@ async def get_current_weather(lat: float, lon: float):
         lastUpdated=curr.get("time", "").replace("T", " ")
     )
 
-@app.get("/api/v1/weather/forecast", response_model=ForecastOut)
-async def get_forecast(lat: float, lon: float, days: int = Query(7, ge=1, le=14)):
-    data = await fetch_open_meteo(lat, lon, days)
-    daily = data.get("daily", {})
     forecast_days = []
-    
     if "time" in daily:
         for i in range(len(daily["time"])):
             forecast_days.append(ForecastDay(
@@ -323,39 +349,53 @@ async def get_forecast(lat: float, lon: float, days: int = Query(7, ge=1, le=14)
                 windSpeed=daily["wind_speed_10m_max"][i],
                 isToday=(i == 0)
             ))
-    return ForecastOut(days=forecast_days)
+    forecast = ForecastOut(days=forecast_days)
+
+    if not daily or "temperature_2m_max" not in daily:
+        analytics = WeatherAnalyticsOut(avgTemp=0, maxTemp=0, minTemp=0, totalRainfall=0, avgHumidity=0, avgWindSpeed=0, extremeDays=0)
+    else:
+        highs = daily["temperature_2m_max"]
+        lows = daily["temperature_2m_min"]
+        temps = [(h+l)/2 for h, l in zip(highs, lows)]
+        rain = daily["precipitation_sum"]
+        wind = daily["wind_speed_10m_max"]
+        extreme_days = sum(1 for h, r in zip(highs, rain) if h > 35 or r > 15)
+        avg_humidity = 50
+        if "relative_humidity_2m_mean" in daily and daily["relative_humidity_2m_mean"]:
+            valid_humidity = [h for h in daily["relative_humidity_2m_mean"] if h is not None]
+            if valid_humidity:
+                avg_humidity = int(sum(valid_humidity) / len(valid_humidity))
+
+        analytics = WeatherAnalyticsOut(
+            avgTemp=sum(temps) / len(temps) if temps else 0,
+            maxTemp=max(highs) if highs else 0,
+            minTemp=min(lows) if lows else 0,
+            totalRainfall=sum(rain),
+            avgHumidity=avg_humidity,
+            avgWindSpeed=sum(wind) / len(wind) if wind else 0,
+            extremeDays=extreme_days
+        )
+
+    return {
+        "current": current,
+        "forecast": forecast,
+        "analytics": analytics
+    }
+
+@app.get("/api/v1/weather/current", response_model=CurrentWeatherOut)
+async def get_current_weather(lat: float, lon: float):
+    weather_data = await get_all_weather(lat, lon, 1)
+    return weather_data["current"]
+
+@app.get("/api/v1/weather/forecast", response_model=ForecastOut)
+async def get_forecast(lat: float, lon: float, days: int = Query(7, ge=1, le=14)):
+    weather_data = await get_all_weather(lat, lon, days)
+    return weather_data["forecast"]
 
 @app.get("/api/v1/weather/analytics", response_model=WeatherAnalyticsOut)
 async def get_weather_analytics(lat: float, lon: float, days: int = Query(7, ge=1, le=14)):
-    data = await fetch_open_meteo(lat, lon, days)
-    daily = data.get("daily", {})
-    
-    if not daily or "temperature_2m_max" not in daily:
-        return WeatherAnalyticsOut(avgTemp=0, maxTemp=0, minTemp=0, totalRainfall=0, avgHumidity=0, avgWindSpeed=0, extremeDays=0)
-        
-    highs = daily["temperature_2m_max"]
-    lows = daily["temperature_2m_min"]
-    temps = [(h+l)/2 for h, l in zip(highs, lows)]
-    rain = daily["precipitation_sum"]
-    wind = daily["wind_speed_10m_max"]
-    
-    extreme_days = sum(1 for h, r in zip(highs, rain) if h > 35 or r > 15)
-    
-    avg_humidity = 50
-    if "relative_humidity_2m_mean" in daily and daily["relative_humidity_2m_mean"]:
-        valid_humidity = [h for h in daily["relative_humidity_2m_mean"] if h is not None]
-        if valid_humidity:
-            avg_humidity = int(sum(valid_humidity) / len(valid_humidity))
-
-    return WeatherAnalyticsOut(
-        avgTemp=sum(temps) / len(temps) if temps else 0,
-        maxTemp=max(highs) if highs else 0,
-        minTemp=min(lows) if lows else 0,
-        totalRainfall=sum(rain),
-        avgHumidity=avg_humidity,
-        avgWindSpeed=sum(wind) / len(wind) if wind else 0,
-        extremeDays=extreme_days
-    )
+    weather_data = await get_all_weather(lat, lon, days)
+    return weather_data["analytics"]
 
 @app.post("/api/v1/weather/gemini-insights", response_model=GeminiInsightsOut)
 async def get_gemini_insights(req: GeminiRequest):
