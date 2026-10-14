@@ -174,69 +174,89 @@ const Weather: React.FC = () => {
           lon: lon ?? 76.7794 
         });
 
-        // 3. Fetch Current Weather, Forecast, Analytics, and Gemini Insights in parallel
-        const [curRes, fcRes, anRes, gemRes] = await Promise.all([
-          api.get(`/api/v1/weather/current`, { params: { lat, lon } }),
-          api.get(`/api/v1/weather/forecast`, { params: { lat, lon, days: forecastDays } }),
-          api.get(`/api/v1/weather/analytics`, { params: { lat, lon, days: forecastDays } }),
-          api.post(`/api/v1/weather/gemini-insights`, { lat, lon, days: forecastDays })
-        ]);
+        // 3. Fetch Current Weather, Forecast, Analytics, and Gemini Insights sequentially with individual error handling
+        // 3a. Current Weather
+        try {
+          const curRes = await api.get(`/api/v1/weather/current`, { params: { lat, lon } });
+          if (!cancelled && curRes.data) {
+            const curJson = curRes.data;
+            setCurrentWeather({
+              location: locationName,
+              coordinates: `${lat?.toFixed(4)}, ${lon?.toFixed(4)}`,
+              temperature: curJson.temperature,
+              feelsLike: curJson.feelsLike,
+              condition: curJson.condition,
+              humidity: curJson.humidity,
+              windSpeed: curJson.windSpeed,
+              windDirection: curJson.windDirection,
+              pressure: curJson.pressure,
+              visibility: curJson.visibility,
+              uvIndex: curJson.uvIndex,
+              aqi: curJson.aqi,
+              precipMm: curJson.precipMm,
+              rainChance: curJson.rainChance,
+              sunrise: curJson.sunrise,
+              sunset: curJson.sunset,
+              lastUpdated: curJson.lastUpdated,
+            });
+          }
+        } catch (err) {
+          console.error("Error fetching current weather:", err);
+        }
 
         if (cancelled) return;
 
-        const curJson = curRes.data;
-        const fcJson = fcRes.data;
-        const anJson = anRes.data;
-        const gemJson = gemRes.data;
+        // 3b. Forecast
+        try {
+          const fcRes = await api.get(`/api/v1/weather/forecast`, { params: { lat, lon, days: forecastDays } });
+          if (!cancelled && fcRes.data?.days && Array.isArray(fcRes.data.days)) {
+            const mappedForecast = fcRes.data.days.map((d: any) => ({
+              date: new Date(d.date),
+              high: d.high,
+              low: d.low,
+              condition: d.condition,
+              rainChance: d.rainChance,
+              rainAmount: d.rainAmount,
+              humidity: d.humidity,
+              windSpeed: d.windSpeed,
+            }));
+            setForecastData(mappedForecast);
+          }
+        } catch (err) {
+          console.error("Error fetching weather forecast:", err);
+        }
 
-        // Update Current Weather state
-        setCurrentWeather({
-          location: locationName,
-          coordinates: `${lat?.toFixed(4)}, ${lon?.toFixed(4)}`,
-          temperature: curJson.temperature,
-          feelsLike: curJson.feelsLike,
-          condition: curJson.condition,
-          humidity: curJson.humidity,
-          windSpeed: curJson.windSpeed,
-          windDirection: curJson.windDirection,
-          pressure: curJson.pressure,
-          visibility: curJson.visibility,
-          uvIndex: curJson.uvIndex,
-          aqi: curJson.aqi,
-          precipMm: curJson.precipMm,
-          rainChance: curJson.rainChance,
-          sunrise: curJson.sunrise,
-          sunset: curJson.sunset,
-          lastUpdated: curJson.lastUpdated,
-        });
+        if (cancelled) return;
 
-        // Update Forecast state
-        if (fcJson.days && Array.isArray(fcJson.days)) {
-          const mappedForecast = fcJson.days.map((d: any) => ({
-            date: new Date(d.date),
-            high: d.high,
-            low: d.low,
-            condition: d.condition,
-            rainChance: d.rainChance,
-            rainAmount: d.rainAmount,
-            humidity: d.humidity,
-            windSpeed: d.windSpeed,
-          }));
-          setForecastData(mappedForecast);
-          
-          // Update analytics from backend response
-          setAnalytics({
-            avgTemp: anJson.avgTemp,
-            maxTemp: anJson.maxTemp,
-            minTemp: anJson.minTemp,
-            totalRainfall: anJson.totalRainfall,
-            avgHumidity: anJson.avgHumidity,
-            avgWindSpeed: anJson.avgWindSpeed,
-            extremeDays: anJson.extremeDays,
-          });
+        // 3c. Analytics
+        try {
+          const anRes = await api.get(`/api/v1/weather/analytics`, { params: { lat, lon, days: forecastDays } });
+          if (!cancelled && anRes.data) {
+            const anJson = anRes.data;
+            setAnalytics({
+              avgTemp: anJson.avgTemp,
+              maxTemp: anJson.maxTemp,
+              minTemp: anJson.minTemp,
+              totalRainfall: anJson.totalRainfall,
+              avgHumidity: anJson.avgHumidity,
+              avgWindSpeed: anJson.avgWindSpeed,
+              extremeDays: anJson.extremeDays,
+            });
+          }
+        } catch (err) {
+          console.error("Error fetching weather analytics:", err);
+        }
 
-          // Update gemini hints
-          setGemini(gemJson);
+        if (cancelled) return;
+
+        // 3d. Gemini Insights
+        try {
+          const gemRes = await api.post(`/api/v1/weather/gemini-insights`, { lat, lon, days: forecastDays });
+          if (!cancelled && gemRes.data) {
+            setGemini(gemRes.data);
+          }
+        } catch (err) {
+          console.error("Error fetching Gemini insights:", err);
         }
 
       } catch (err) {
